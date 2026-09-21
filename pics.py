@@ -3,8 +3,11 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.patches import Polygon
 
+import deck_style as ds
+
 # --- Общая палитра ---
-BG_COLOR = '#0d1117'
+# Никакой заливки: иллюстрации ложатся прямо на Slide.jpg, поэтому все
+# три сохраняются через ds.save_transparent (transparent=True).
 CYAN = '#58a6ff'
 PINK = '#ff7b72'
 GREEN = '#3fb950'
@@ -18,10 +21,10 @@ plt.style.use('dark_background')
 # ==========================================
 def draw_stage1_low_rank():
     fig = plt.figure(figsize=(6, 5), dpi=200)
-    fig.patch.set_facecolor(BG_COLOR)
     ax = fig.add_subplot(111, projection='3d')
-    ax.set_facecolor(BG_COLOR)
     ax.axis('off') # Отключаем всё лишнее
+    # 3D-панели держат собственную заливку и переживают transparent=True.
+    ds.make_transparent(fig, ax)
     
     np.random.seed(42)
     num_basis = 5
@@ -60,9 +63,7 @@ def draw_stage1_low_rank():
     # Настройка камеры
     ax.view_init(elev=20, azim=45)
     plt.tight_layout()
-    plt.savefig('stage1_symbolic.png', facecolor=BG_COLOR, bbox_inches='tight', pad_inches=0)
-    plt.close()
-    print("Saved 'stage1_symbolic.png'")
+    ds.save_transparent(fig, 'stage1_symbolic.png', pad_inches=0)
 
 # ==========================================
 # STAGE 2: Decorrelation (WHT size 4)
@@ -71,7 +72,7 @@ def draw_stage2_decorrelation():
     # Горизонтальное выравнивание: Гистограмма -> Сеть -> Гистограмма
     fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(9, 3.5), dpi=200, 
                                         gridspec_kw={'width_ratios': [1, 1.2, 1], 'wspace': 0.1})
-    fig.patch.set_facecolor(BG_COLOR)
+    ds.make_transparent(fig, ax1, ax2, ax3)
     
     D = 4
     # Спайковый вектор и его WHT трансформация
@@ -87,7 +88,6 @@ def draw_stage2_decorrelation():
     for ax in [ax1, ax2, ax3]:
         ax.axis('off')
         ax.set_ylim(D - 0.5, -0.5) # Инвертированная ось Y для выравнивания
-        ax.set_facecolor(BG_COLOR)
 
     # 1. Левая гистограмма (Спайк)
     ax1.set_xlim(-MAX_VAL, MAX_VAL)
@@ -120,19 +120,16 @@ def draw_stage2_decorrelation():
         ax3.barh(i, v_out[i], height=0.4, color=GREEN, alpha=0.9)
 
     plt.tight_layout()
-    plt.savefig('stage2_symbolic.png', facecolor=BG_COLOR, bbox_inches='tight', pad_inches=0)
-    plt.close()
-    print("Saved 'stage2_symbolic.png'")
+    ds.save_transparent(fig, 'stage2_symbolic.png', pad_inches=0)
 
 # ==========================================
 # STAGE 3: Delta Compression (Multiple Clusters)
 # ==========================================
 def draw_stage3_delta():
     fig = plt.figure(figsize=(6, 5), dpi=200)
-    fig.patch.set_facecolor(BG_COLOR)
     ax = fig.add_subplot(111)
     ax.axis('off')
-    ax.set_facecolor(BG_COLOR)
+    ds.make_transparent(fig, ax)
     
     np.random.seed(11)
     # 3 центроида в разных частях экрана
@@ -140,7 +137,7 @@ def draw_stage3_delta():
     
     for cx, cy in centroids:
         # Рисуем сам центроид (звезду)
-        ax.scatter(cx, cy, color=YELLOW, marker='*', s=500, zorder=5, edgecolor='#0d1117', lw=1)
+        ax.scatter(cx, cy, color=YELLOW, marker='*', s=500, zorder=5, edgecolor='none')
         
         # Генерируем 7-10 точек вокруг центроида
         num_points = np.random.randint(7, 12)
@@ -154,9 +151,7 @@ def draw_stage3_delta():
             ax.scatter(p[0], p[1], color=GREEN, s=60, zorder=3)
 
     plt.tight_layout()
-    plt.savefig('stage3_symbolic.png', facecolor=BG_COLOR, bbox_inches='tight', pad_inches=0)
-    plt.close()
-    print("Saved 'stage3_symbolic.png'")
+    ds.save_transparent(fig, 'stage3_symbolic.png', pad_inches=0)
 
 if __name__ == "__main__":
     draw_stage1_low_rank()

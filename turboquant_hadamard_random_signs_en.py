@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation
 import matplotlib.patches as patches
+
+import deck_style as ds
 
 # ==========================================
 # 1. SIMULATION SETTINGS
@@ -76,20 +78,23 @@ def get_vector_at(time_val):
 plt.style.use('dark_background')
 
 # CHANGED: Adjusted width_ratios to make the histogram significantly wider
+# Strict 16:9 so the video fills the 10 x 5.625in slide edge to edge.
 fig, (ax_hist, ax_net) = plt.subplots(
     1, 2, 
-    figsize=(16, 9), dpi=120, 
+    figsize=ds.FIGSIZE_16_9, dpi=ds.DPI_16_9, 
     gridspec_kw={'width_ratios': [1.4, 2.2], 'wspace': 0.08},
     sharey=True
 )
 fig.subplots_adjust(left=0.04, right=0.98, bottom=0.02, top=0.92)
-fig.patch.set_facecolor('#0d1117')
-ax_hist.set_facecolor('#161b22')
-ax_net.set_facecolor('#0d1117')
+# Flat deck black so the full-bleed frame blends into the slide artwork.
+ds.apply_figure_background(fig)
+ds.clear_axes_background(ax_hist, ax_net)
 
 def update(frame):
     ax_hist.clear()
     ax_net.clear()
+    # clear() restores the stylesheet fill, so re-apply transparency here.
+    ds.clear_axes_background(ax_hist, ax_net)
     ax_hist.axis('off')
     ax_net.axis('off')
     
@@ -161,7 +166,7 @@ def update(frame):
         center_y = (i + j) / 2
         
         circle = patches.Ellipse((center_x, center_y), width=2*R_x, height=2*R_y, 
-                                 facecolor='#161b22', edgecolor='#4cc9f0', alpha=0.95, zorder=7)
+                                 facecolor=ds.DECK_BG, edgecolor='#4cc9f0', alpha=0.95, zorder=7)
         ax_net.add_patch(circle)
         
         ax_net.plot([center_x - R_x, center_x + R_x], [center_y, center_y], color='#8b949e', lw=0.5, alpha=0.5, zorder=8)
@@ -188,9 +193,7 @@ def update(frame):
     ax_net.set_title(title_net, color='white', fontsize=14, fontweight='bold', pad=15)
 
 # ==========================================
-# 4. SAVING THE ANIMATION
+# 4. SAVING THE ANIMATION (H.264, see deck_style.save_animation)
 # ==========================================
-print(f"Rendering animation...")
 anim = FuncAnimation(fig, update, frames=TOTAL_FRAMES + int(FPS*1.5), interval=1000 // FPS)
-anim.save("turboquant_hadamard_random_signs_en.gif", writer=PillowWriter(fps=FPS))
-print("Done! Saved as 'turboquant_hadamard_random_signs_en.gif'")
+ds.save_animation(anim, "turboquant_hadamard_random_signs_en.mp4", fps=FPS)

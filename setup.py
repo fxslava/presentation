@@ -1,57 +1,139 @@
 import os
+import sys
+
+# Сообщения сборки на русском: в cp1252-консоли print() иначе падает.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from PIL import Image
 from pptx import Presentation
+from pptx.oxml.ns import nsdecls
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.oxml import parse_xml
 
-# --- Генерация иллюстрации формулы Сильвестра ---
-def generate_formula_image():
-    import matplotlib.pyplot as plt
-    plt.style.use('dark_background')
-    fig = plt.figure(figsize=(10, 3), dpi=200)
-    fig.patch.set_facecolor('#0a0a0a')
-    
-    # Используем \left[ \matrix{ ... } \right] вместо \begin{bmatrix}
-    formula = (
-        r"$\mathbf{H}_{256} = \mathbf{H}_{16} \otimes \mathbf{H}_{16}$"
-        "\n\n"
-        r"$= \left[ \matrix{ "
-        r"1 \cdot \mathbf{H}_{16} & 1 \cdot \mathbf{H}_{16} & \dots & 1 \cdot \mathbf{H}_{16} \\ "
-        r"1 \cdot \mathbf{H}_{16} & -1 \cdot \mathbf{H}_{16} & \dots & -1 \cdot \mathbf{H}_{16} \\ "
-        r"\vdots & \vdots & \ddots & \vdots \\ "
-        r"1 \cdot \mathbf{H}_{16} & -1 \cdot \mathbf{H}_{16} & \dots & \pm 1 \cdot \mathbf{H}_{16} "
-        r"} \right]$"
-    )
-    
-    plt.text(0.5, 0.5, formula, color='#d4af37', fontsize=22, ha='center', va='center')
-    plt.axis('off')
-    plt.savefig('sylvester_formula.png', bbox_inches='tight', facecolor='#0a0a0a', pad_inches=0.1)
-    plt.close()
-    print("Сгенерирована иллюстрация формулы: sylvester_formula.png")
+import deck_style as ds
 
 # --- Премиальная корпоративная палитра (Black & Gold) ---
-BG_COLOR = RGBColor(10, 10, 10)        
-TEXT_COLOR = RGBColor(212, 175, 55)    
-GRAY_COLOR = RGBColor(220, 220, 220)   
-CYAN_COLOR = RGBColor(184, 134, 11)    
-PINK_COLOR = RGBColor(205, 127, 50)    
-GREEN_COLOR = RGBColor(218, 165, 32)   
-ORANGE_COLOR = RGBColor(238, 232, 170) 
+TEXT_COLOR = RGBColor(212, 175, 55)
+GRAY_COLOR = RGBColor(220, 220, 220)
+CYAN_COLOR = RGBColor(184, 134, 11)
+PINK_COLOR = RGBColor(205, 127, 50)
+GREEN_COLOR = RGBColor(218, 165, 32)
+ORANGE_COLOR = RGBColor(238, 232, 170)
 
-def set_slide_bg(slide, color):
-    background = slide.background
-    fill = background.fill
-    fill.solid()
-    fill.fore_color.rgb = color
+# Фирменный логотип занимает x 0.33-1.70in, y 0.29-0.60in на обеих подложках,
+# поэтому заголовки слайдов начинаются правее него.
+TITLE_LEFT = 1.85
+TITLE_WIDTH = 7.65
+
+# Видео стартует само при показе слайда (как это делал GIF).
+# False -> останется поведение python-pptx по умолчанию: запуск по клику.
+AUTOPLAY_VIDEO = True
+
+
+# ==========================================
+# Генерация иллюстрации формулы Сильвестра
+# ==========================================
+def generate_formula_image(filename='sylvester_formula.png'):
+    """Рисует факторизацию Сильвестра вручную, без матричных окружений LaTeX.
+
+    Встроенный в matplotlib парсер mathtext не знает ни ``\\begin{bmatrix}``,
+    ни ``\\matrix{}`` -- оба падают с ValueError. Поэтому скобки рисуются
+    линиями, а каждая ячейка выводится отдельной mathtext-строкой: такие
+    выражения (``\\mathbf``, ``\\otimes``, ``\\pm``, ``\\vdots``, ``\\ddots``)
+    парсер поддерживает.
+    """
+    fig = plt.figure(figsize=(12, 3.6), dpi=220)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.axis('off')
+    ds.make_transparent(fig, ax)
+
+    gold, dim = ds.GOLD, ds.GOLD_DIM
+
+    # Верхняя строка: само тензорное произведение.
+    ax.text(0.5, 0.88, r"$\mathbf{H}_{256} = \mathbf{H}_{16} \otimes \mathbf{H}_{16}$",
+            color=gold, fontsize=30, ha='center', va='center')
+
+    # Сетка ячеек 4x4: три явные строки и строка многоточий.
+    col_x = [0.34, 0.48, 0.62, 0.78]
+    row_y = [0.54, 0.42, 0.30, 0.16]
+    cells = [
+        [r"$1 \cdot \mathbf{H}_{16}$", r"$1 \cdot \mathbf{H}_{16}$", r"$\cdots$", r"$1 \cdot \mathbf{H}_{16}$"],
+        [r"$1 \cdot \mathbf{H}_{16}$", r"$-1 \cdot \mathbf{H}_{16}$", r"$\cdots$", r"$-1 \cdot \mathbf{H}_{16}$"],
+        [r"$\vdots$", r"$\vdots$", r"$\ddots$", r"$\vdots$"],
+        [r"$1 \cdot \mathbf{H}_{16}$", r"$-1 \cdot \mathbf{H}_{16}$", r"$\cdots$", r"$+1 \cdot \mathbf{H}_{16}$"],
+    ]
+
+    for row, y in zip(cells, row_y):
+        for cell, x in zip(row, col_x):
+            is_dots = cell in (r"$\cdots$", r"$\vdots$", r"$\ddots$")
+            ax.text(x, y, cell, color=dim if is_dots else gold,
+                    fontsize=19, ha='center', va='center')
+
+    # Знак равенства перед скобкой.
+    ax.text(0.20, 0.35, r"$=$", color=gold, fontsize=30, ha='center', va='center')
+
+    # Скобки: вертикаль + засечки сверху и снизу (замена \left[ ... \right]).
+    bracket_top, bracket_bottom = 0.62, 0.08
+    serif = 0.022
+    for x, direction in ((0.245, 1), (0.875, -1)):
+        ax.plot([x, x], [bracket_bottom, bracket_top], color=gold, lw=2.4,
+                solid_capstyle='projecting')
+        for y in (bracket_bottom, bracket_top):
+            ax.plot([x, x + direction * serif], [y, y], color=gold, lw=2.4,
+                    solid_capstyle='projecting')
+
+    ds.save_transparent(fig, filename, pad_inches=0.05)
+    return filename
+
+
+# ==========================================
+# Слайды: подложка, заголовки, блоки
+# ==========================================
+def add_background(slide, image_path):
+    """Кладёт артворк во весь слайд и уводит его в самый низ z-порядка."""
+    pic = slide.shapes.add_picture(image_path, 0, 0,
+                                   width=prs.slide_width, height=prs.slide_height)
+
+    # Подложка 1.793:1, слайд 1.778:1 -- режем по центру, а не растягиваем.
+    with Image.open(image_path) as img:
+        left, top, right, bottom = ds.cover_crop(img.width / img.height)
+    pic.crop_left, pic.crop_top = left, top
+    pic.crop_right, pic.crop_bottom = right, bottom
+
+    # spTree: [0] nvGrpSpPr, [1] grpSpPr, дальше фигуры -- подложка идёт первой.
+    spTree = slide.shapes._spTree
+    spTree.remove(pic._element)
+    spTree.insert(2, pic._element)
+    return pic
+
+
+def new_slide(title_slide=False):
+    """Пустой слайд с нужным артворком вместо сплошной заливки."""
+    slide = prs.slides.add_slide(blank_slide_layout)
+    path = ds.title_background_path() if title_slide else ds.background_path()
+    if path:
+        add_background(slide, path)
+    return slide
+
 
 def add_title(slide, text):
-    title_box = slide.shapes.add_textbox(Inches(0.5), Inches(0.2), Inches(9), Inches(0.8))
+    title_box = slide.shapes.add_textbox(Inches(TITLE_LEFT), Inches(0.18),
+                                         Inches(TITLE_WIDTH), Inches(0.72))
     tf = title_box.text_frame
     tf.word_wrap = True
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE      # выравнивание по логотипу
     p = tf.paragraphs[0]
     p.text = text
-    p.font.size = Pt(22)
+    p.font.size = Pt(20)
     p.font.bold = True
     p.font.color.rgb = TEXT_COLOR
     return tf
@@ -60,18 +142,18 @@ def add_block(slide, top, title, title_color, content, line_spacing=1.1, width=9
     box = slide.shapes.add_textbox(Inches(0.5), Inches(top), Inches(width), Inches(1.2))
     tf = box.text_frame
     tf.word_wrap = True
-    
+
     p = tf.paragraphs[0]
     p.text = title
     p.font.size = Pt(14)
     p.font.bold = True
     p.font.color.rgb = title_color
     p.space_after = Pt(2)
-    
+
     for line in content:
         p = tf.add_paragraph()
         p.text = line
-        p.font.size = Pt(11) 
+        p.font.size = Pt(11)
         p.font.color.rgb = GRAY_COLOR
         p.line_spacing = line_spacing
         p.space_before = Pt(3)
@@ -85,46 +167,133 @@ def add_side_image(slide, image_path, left, top, width=None, height=None):
         else:
             slide.shapes.add_picture(image_path, Inches(left), Inches(top), width=Inches(width), height=Inches(height))
 
-def add_fullscreen_gif_slide(gif_filename, original_aspect_ratio):
-    slide = prs.slides.add_slide(blank_slide_layout)
-    set_slide_bg(slide, BG_COLOR)
-    if os.path.exists(gif_filename):
-        pic_width = prs.slide_width 
-        pic_height = pic_width / original_aspect_ratio
-        top = (prs.slide_height - pic_height) / 2
-        slide.shapes.add_picture(gif_filename, 0, top, width=pic_width)
+
+# ==========================================
+# Видео-слайды (H.264 во весь экран)
+# ==========================================
+def _set_autoplay(slide, movie, duration_ms):
+    """Дописывает в тайминг слайда mainSeq, запускающий видео при показе.
+
+    python-pptx кладёт в ``p:timing`` только узел ``p:video`` с условием
+    ``delay="indefinite"`` -- это запуск по клику. Автостарт даёт
+    ``p:seq``-последовательность с ``playFrom(0.0)``, которую PowerPoint
+    цепляет к началу mainSeq через ``p:cond evt="onBegin"``.
+    """
+    childTnLsts = slide._element.xpath('./p:timing/p:tnLst/p:par/p:cTn/p:childTnLst')
+    if not childTnLsts:
+        return
+    childTnLst = childTnLsts[0]
+
+    used_ids = [int(v) for v in slide._element.xpath('./p:timing//p:cTn/@id')]
+    base = max(used_ids) if used_ids else 1
+    seq_id, click_id, group_id, effect_id, bhvr_id = (base + n for n in range(1, 6))
+
+    seq_xml = (
+        '<p:seq %s concurrent="1" nextAc="seek">\n'
+        '  <p:cTn id="%d" dur="indefinite" nodeType="mainSeq">\n'
+        '    <p:childTnLst>\n'
+        '      <p:par>\n'
+        '        <p:cTn id="%d" fill="hold">\n'
+        '          <p:stCondLst>\n'
+        '            <p:cond delay="indefinite"/>\n'
+        '            <p:cond evt="onBegin" delay="0"><p:tn val="%d"/></p:cond>\n'
+        '          </p:stCondLst>\n'
+        '          <p:childTnLst>\n'
+        '            <p:par>\n'
+        '              <p:cTn id="%d" fill="hold">\n'
+        '                <p:stCondLst><p:cond delay="0"/></p:stCondLst>\n'
+        '                <p:childTnLst>\n'
+        '                  <p:par>\n'
+        '                    <p:cTn id="%d" presetID="1" presetClass="mediacall"'
+        ' presetSubtype="0" fill="hold" nodeType="afterEffect">\n'
+        '                      <p:stCondLst><p:cond delay="0"/></p:stCondLst>\n'
+        '                      <p:childTnLst>\n'
+        '                        <p:cmd type="call" cmd="playFrom(0.0)">\n'
+        '                          <p:cBhvr>\n'
+        '                            <p:cTn id="%d" dur="%d" fill="hold"/>\n'
+        '                            <p:tgtEl><p:spTgt spid="%d"/></p:tgtEl>\n'
+        '                          </p:cBhvr>\n'
+        '                        </p:cmd>\n'
+        '                      </p:childTnLst>\n'
+        '                    </p:cTn>\n'
+        '                  </p:par>\n'
+        '                </p:childTnLst>\n'
+        '              </p:cTn>\n'
+        '            </p:par>\n'
+        '          </p:childTnLst>\n'
+        '        </p:cTn>\n'
+        '      </p:par>\n'
+        '    </p:childTnLst>\n'
+        '  </p:cTn>\n'
+        '  <p:prevCondLst>\n'
+        '    <p:cond evt="onPrev" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond>\n'
+        '  </p:prevCondLst>\n'
+        '  <p:nextCondLst>\n'
+        '    <p:cond evt="onNext" delay="0"><p:tgtEl><p:sldTgt/></p:tgtEl></p:cond>\n'
+        '  </p:nextCondLst>\n'
+        '</p:seq>' % (nsdecls('p'), seq_id, click_id, seq_id, group_id,
+                      effect_id, bhvr_id, duration_ms, movie.shape_id)
+    )
+    # p:seq должен стоять перед p:video, как это делает сам PowerPoint.
+    childTnLst.insert(0, parse_xml(seq_xml))
+
+
+def add_fullscreen_video_slide(video_filename):
+    """Слайд с H.264-видео во весь кадр 10 x 5.625in.
+
+    Анимации рендерятся строго в 16:9, поэтому кадрирование не нужно:
+    видео совпадает со слайдом пиксель в пиксель.
+    """
+    slide = new_slide()
+    if not os.path.exists(video_filename):
+        print(f"ПРОПУЩЕНО: нет файла '{video_filename}'")
+        return slide
+
+    poster = ds.poster_frame(video_filename)
+    movie = slide.shapes.add_movie(
+        video_filename, 0, 0, prs.slide_width, prs.slide_height,
+        poster_frame_image=poster, mime_type='video/mp4',
+    )
+    if AUTOPLAY_VIDEO:
+        _set_autoplay(slide, movie, ds.video_duration_ms(video_filename))
+    return slide
+
+
+# Иллюстрация формулы собирается здесь же, перед сборкой колоды.
+generate_formula_image()
 
 prs = Presentation()
 prs.slide_width = Inches(10)
 prs.slide_height = Inches(5.625)
-blank_slide_layout = prs.slide_layouts[6] 
+blank_slide_layout = prs.slide_layouts[6]
 
 # ==========================================
 # SLIDE 1: MAIN TITLE SLIDE (NEW)
 # ==========================================
-slide1 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide1, BG_COLOR)
-title_box = slide1.shapes.add_textbox(Inches(1), Inches(2), Inches(8), Inches(2))
+slide1 = new_slide(title_slide=True)
+# Соты на Title.jpg занимают правый нижний угол -- текст живёт в чистой левой
+# половине, под логотипом.
+title_box = slide1.shapes.add_textbox(Inches(0.9), Inches(1.9), Inches(6.0), Inches(2.0))
 tf = title_box.text_frame
+tf.word_wrap = True
 p = tf.paragraphs[0]
 p.text = "TurboQuant Integration\ninto vLLM-Ascend"
 p.font.size = Pt(40)
 p.font.bold = True
 p.font.color.rgb = TEXT_COLOR
-p.alignment = PP_ALIGN.CENTER
+p.alignment = PP_ALIGN.LEFT
 
 p2 = tf.add_paragraph()
 p2.text = "Deferred & Hybrid Paged KV-Cache Acceleration"
-p2.font.size = Pt(20)
+p2.font.size = Pt(18)
 p2.font.color.rgb = GRAY_COLOR
-p2.alignment = PP_ALIGN.CENTER
+p2.alignment = PP_ALIGN.LEFT
 p2.space_before = Pt(20)
 
 # ==========================================
 # SLIDE 2: Evolution
 # ==========================================
-slide2 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide2, BG_COLOR)
+slide2 = new_slide()
 add_title(slide2, "Evolution of KV Cache Compression: The Path to TurboQuant")
 add_block(slide2, 1.0, "2022–2023 | Direct Quantization & The Outlier Dilemma", PINK_COLOR, [
     "Key Methods: SmoothQuant, GPTQ, RTN.",
@@ -147,31 +316,31 @@ add_block(slide2, 4.3, "2025–2026 | Hardware-Fused Synthesis", GREEN_COLOR, [
 # ==========================================
 # SLIDE 3: Classification
 # ==========================================
-slide3 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide3, BG_COLOR)
+slide3 = new_slide()
 add_title(slide3, "From Matrices to Local Redundancy: Classification")
+# Иллюстрации обрезаны по альфа-каналу, поэтому колонка справа
+# разложена по фактическим пропорциям, без наложений.
 add_block(slide3, 1.0, "Stage 1: Linear Low-Rank Projection (SVD / Low-Rank)", ORANGE_COLOR, [
     "Concept: Finding a global secant hyperplane. Cache is projected from 'd' to a narrow subspace 'r'.",
     "Flaw: Compresses background context well, but destroys extreme radial outliers critical for rare facts."
 ], width=5.2)
-add_side_image(slide3, "stage1_symbolic.png", left=6.3, top=0.9, height=1.3)
+add_side_image(slide3, "stage1_symbolic.png", left=6.4, top=0.95, height=1.25)
 
 add_block(slide3, 2.4, "Stage 2: Outlier Smearing (Decorrelation / WHT)", CYAN_COLOR, [
     "Concept: Smoothing giant amplitude spikes using random orthogonal rotations before low-bit quantization.",
     "Flaw: Treats INT4 hardware incompatibility symptoms but ignores the true semantic topology of the data."
 ], width=5.2)
-add_side_image(slide3, "stage2_symbolic.png", left=5.8, top=2.45, width=3.8)
+add_side_image(slide3, "stage2_symbolic.png", left=5.9, top=2.35, width=3.4)
 
 add_block(slide3, 3.8, "Stage 3: Delta-Compression & Clustering", PINK_COLOR, [
     "Concept: Context is split into windows, computing a local centroid (μ), storing tokens as offsets (Δ = k - μ)."
 ], width=5.2)
-add_side_image(slide3, "stage3_symbolic.png", left=6.3, top=3.7, height=1.3)
+add_side_image(slide3, "stage3_symbolic.png", left=6.1, top=4.05, height=1.25)
 
 # ==========================================
 # SLIDE 4: TurboQuant Theory
 # ==========================================
-slide4 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide4, BG_COLOR)
+slide4 = new_slide()
 add_title(slide4, "Compression via Topology: Non-linear Manifolds")
 add_block(slide4, 1.0, "Main Insight: Intrinsic Dimensionality", CYAN_COLOR, [
     "The latent space of LLMs does not fill the Cartesian volume uniformly.",
@@ -187,14 +356,13 @@ add_block(slide4, 2.1, "Mechanics of the New Representation: Polar/Rotational Qu
 # ==========================================
 # SLIDE 5 & 6: Animations (Dispersion & Signs)
 # ==========================================
-add_fullscreen_gif_slide("turboquant_dispersion_en.gif", original_aspect_ratio=2.545)
-add_fullscreen_gif_slide("turboquant_hadamard_random_signs_en.gif", original_aspect_ratio=1.777)
+add_fullscreen_video_slide("turboquant_dispersion_en.mp4")
+add_fullscreen_video_slide("turboquant_hadamard_random_signs_en.mp4")
 
 # ==========================================
 # SLIDE 7: Integration Outline
 # ==========================================
-slide7 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide7, BG_COLOR)
+slide7 = new_slide()
 add_title(slide7, "TurboQuant Integration Strategy: Table of Contents")
 add_block(slide7, 1.2, "Phase 1: vLLM-Ascend Plugin Architecture", CYAN_COLOR, [
     "Validation of end-to-end mathematical contracts on CAModel simulators and bare-metal NPU."
@@ -212,8 +380,7 @@ add_block(slide7, 4.2, "Phase 4: Silicon Validation & E2E Benchmarks", GREEN_COL
 # ==========================================
 # SLIDE 8: The FWHT Bottleneck & Benchmarks
 # ==========================================
-slide8 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide8, BG_COLOR)
+slide8 = new_slide()
 add_title(slide8, "The FWHT Bottleneck & The CUBE Solution")
 add_block(slide8, 0.9, "Cube Underutilization vs. Proper Vector Mapping", PINK_COLOR, [
     "While vector cores choked on data permutations, the massive 16x16 Cube systolic arrays remained idle.",
@@ -235,7 +402,7 @@ for col_idx, header in enumerate(headers):
     cell = table.cell(0, col_idx)
     cell.text = header
     cell.fill.solid()
-    cell.fill.fore_color.rgb = RGBColor(30, 30, 30) 
+    cell.fill.fore_color.rgb = RGBColor(30, 30, 30)
     p = cell.text_frame.paragraphs[0]
     p.font.bold = True
     p.font.color.rgb = CYAN_COLOR
@@ -256,15 +423,14 @@ for row_idx, row_data in enumerate(data):
             p.font.bold = True
 
 # ==========================================
-# SLIDE 9: Why AIV is Slow (GIF showing 8 barriers)
+# SLIDE 9: Why AIV is Slow (video showing 8 barriers)
 # ==========================================
-add_fullscreen_gif_slide("turboquant_npu_async_8stages.gif", original_aspect_ratio=1.777)
+add_fullscreen_video_slide("turboquant_npu_async_8stages.mp4")
 
 # ==========================================
 # SLIDE 10: Mathematical Breakthrough: Sylvester
 # ==========================================
-slide10 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide10, BG_COLOR)
+slide10 = new_slide()
 add_title(slide10, "Mathematical Breakthrough: Sylvester Tensor FWHT")
 add_block(slide10, 1.0, "Tensor Factorization", CYAN_COLOR, [
     "For a vector of length D = R × 16, we apply the Sylvester property to shift logic to CUBE cores.",
@@ -272,7 +438,7 @@ add_block(slide10, 1.0, "Tensor Factorization", CYAN_COLOR, [
 ], width=9.0)
 
 # Вставляем иллюстрацию формулы Сильвестра
-add_side_image(slide10, "sylvester_formula.png", left=1.0, top=2.2, width=8.0)
+add_side_image(slide10, "sylvester_formula.png", left=1.5, top=2.1, width=7.0)
 
 add_block(slide10, 4.2, "Arch35 Innovation: Hi+Lo Accumulation", GREEN_COLOR, [
     "Base FP16 Cube yields 3.58×10⁻⁴ error. Splitting input into x_hi and x_lo via two-pass Mmad into one L0C accumulator",
@@ -280,15 +446,14 @@ add_block(slide10, 4.2, "Arch35 Innovation: Hi+Lo Accumulation", GREEN_COLOR, [
 ])
 
 # ==========================================
-# SLIDE 11: Why CUBE is Fast (GIF showing 2 barriers)
+# SLIDE 11: Why CUBE is Fast (video showing 2 barriers)
 # ==========================================
-add_fullscreen_gif_slide("turboquant_matrix_pipeline.gif", original_aspect_ratio=1.777)
+add_fullscreen_video_slide("turboquant_matrix_pipeline.mp4")
 
 # ==========================================
 # SLIDE 12: End-to-End Decode Performance Table (NEW)
 # ==========================================
-slide12 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide12, BG_COLOR)
+slide12 = new_slide()
 add_title(slide12, "End-to-End Decode Performance (vLLM-Ascend)")
 
 # Выборка наиболее важных строк для таблицы (10 строк)
@@ -314,7 +479,7 @@ for col_idx, header in enumerate(e2e_headers):
     cell = e2e_table.cell(0, col_idx)
     cell.text = header
     cell.fill.solid()
-    cell.fill.fore_color.rgb = RGBColor(30, 30, 30) 
+    cell.fill.fore_color.rgb = RGBColor(30, 30, 30)
     p = cell.text_frame.paragraphs[0]
     p.font.bold = True
     p.font.color.rgb = CYAN_COLOR
@@ -338,8 +503,7 @@ for row_idx, row_data in enumerate(e2e_data):
 # ==========================================
 # SLIDE 13: Milestone 3 - Quality Research (NEW)
 # ==========================================
-slide13 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide13, BG_COLOR)
+slide13 = new_slide()
 add_title(slide13, "Milestone 3: Model Quality & Next Steps")
 add_block(slide13, 1.2, "Exploration of Delta-Encoding on Compressed Cache", CYAN_COLOR, [
     "Future Research: Investigating delta-encoding mechanisms applied directly on the compressed KV cache.",
@@ -356,8 +520,7 @@ add_block(slide13, 3.2, "The Long-Context Paradox (16k - 65k Tokens)", GREEN_COL
 # ==========================================
 # SLIDE 14: Conclusion
 # ==========================================
-slide14 = prs.slides.add_slide(blank_slide_layout)
-set_slide_bg(slide14, BG_COLOR)
+slide14 = new_slide()
 add_title(slide14, "Conclusion")
 add_block(slide14, 1.2, "Summary of Achievements", GREEN_COLOR, [
     "1. Hybrid Cube-Vector FWHT: Overcame the AIV bottleneck with 2.46× speedup at machine-zero error.",
@@ -369,6 +532,13 @@ add_block(slide14, 3.0, "Q&A", TEXT_COLOR, [
     "Questions regarding Cube-Vector fusion, Sylvester factorization, or vLLM integration?"
 ])
 
-output_file = "TurboQuant_Final_Deck.pptx"
-prs.save(output_file)
-print(f"Финальная презентация успешно сохранена как '{output_file}'!")
+# Путь можно переопределить аргументом: удобно собрать копию, пока
+# основной файл открыт в PowerPoint.
+output_file = sys.argv[1] if len(sys.argv) > 1 else "TurboQuant_Final_Deck.pptx"
+try:
+    prs.save(output_file)
+except PermissionError:
+    sys.exit(f"Файл '{output_file}' занят (открыт в PowerPoint?). "
+             f"Закройте его или укажите другое имя: python setup.py <файл.pptx>")
+print(f"Финальная презентация успешно сохранена как '{output_file}' "
+      f"({os.path.getsize(output_file) / 1e6:.1f} MB)!")

@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation
 import itertools
+
+import deck_style as ds
 
 # ==========================================
 # 1. НАСТРОЙКИ СИМУЛЯЦИИ И ДАННЫХ
@@ -36,7 +38,7 @@ V_MAX = np.max(np.abs(initial_v)) * 1.1
 # Цвета в формате RGBA
 C_CYAN = np.array([76, 201, 240, 255]) / 255.0
 C_PINK = np.array([255, 77, 109, 255]) / 255.0
-C_BG = np.array([13, 17, 23, 255]) / 255.0
+C_BG = np.array([10, 10, 10, 255]) / 255.0
 
 # Генерация базового паттерна
 H_2 = np.array([[1, 1], [1, -1]])
@@ -68,14 +70,15 @@ visited_2 = 0
 # 2. НАСТРОЙКА ВИЗУАЛИЗАЦИИ
 # ==========================================
 plt.style.use('dark_background')
+# Строгий формат 16:9, чтобы видео закрывало слайд 10 x 5.625in целиком.
 fig, (ax_hist, ax_net) = plt.subplots(
-    1, 2, figsize=(16, 9), dpi=120, 
+    1, 2, figsize=ds.FIGSIZE_16_9, dpi=ds.DPI_16_9, 
     gridspec_kw={'width_ratios': [1.2, 2.5], 'wspace': 0.1}
 )
 fig.subplots_adjust(left=0.04, right=0.98, bottom=0.04, top=0.90)
-fig.patch.set_facecolor('#0d1117')
-ax_hist.set_facecolor('#161b22')
-ax_net.set_facecolor('#0d1117')
+# Ровный чёрный фон слайда: кадр во весь экран сливается с подложкой.
+ds.apply_figure_background(fig)
+ds.clear_axes_background(ax_hist, ax_net)
 ax_hist.axis('off')
 ax_net.axis('off')
 
@@ -174,7 +177,5 @@ def update(frame):
 
     return im1, im2, playhead, *bar_rects
 
-print("Генерация пайплайн-анимации матриц...")
 anim = FuncAnimation(fig, update, frames=TOTAL_FRAMES, interval=1000//FPS, blit=False)
-anim.save("turboquant_matrix_pipeline.gif", writer=PillowWriter(fps=FPS))
-print("Готово! Сохранено как 'turboquant_matrix_pipeline.gif'")
+ds.save_animation(anim, "turboquant_matrix_pipeline.mp4", fps=FPS)

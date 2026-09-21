@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation
 from matplotlib.collections import LineCollection
+
+import deck_style as ds
 
 # ==========================================
 # 1. НАСТРОЙКИ СИМУЛЯЦИИ NPU
@@ -50,14 +52,15 @@ thread_durations = np.random.uniform(0.4, 0.6, size=(STAGES, len(get_pairs(0))))
 # 3. ВИЗУАЛИЗАЦИЯ
 # ==========================================
 plt.style.use('dark_background')
+# Строгий формат 16:9, чтобы видео закрывало слайд 10 x 5.625in целиком.
 fig, (ax_hist, ax_net) = plt.subplots(
-    1, 2, figsize=(16, 9), dpi=120, 
+    1, 2, figsize=ds.FIGSIZE_16_9, dpi=ds.DPI_16_9, 
     gridspec_kw={'width_ratios': [1.2, 2.5], 'wspace': 0.05}, sharey=True
 )
 fig.subplots_adjust(left=0.04, right=0.98, bottom=0.02, top=0.92)
-fig.patch.set_facecolor('#0d1117')
-ax_hist.set_facecolor('#161b22')
-ax_net.set_facecolor('#0d1117')
+# Ровный чёрный фон слайда: кадр во весь экран сливается с подложкой.
+ds.apply_figure_background(fig)
+ds.clear_axes_background(ax_hist, ax_net)
 
 ax_hist.axis('off')
 ax_net.axis('off')
@@ -132,7 +135,5 @@ def update(frame):
 
     return scatter, *bar_rects, *barriers
 
-print("Генерация асинхронной анимации бабочек...")
 anim = FuncAnimation(fig, update, frames=TOTAL_FRAMES, interval=1000//FPS, blit=False)
-anim.save("turboquant_npu_async_8stages.gif", writer=PillowWriter(fps=FPS))
-print("Готово! Сохранено как 'turboquant_npu_async_8stages.gif'")
+ds.save_animation(anim, "turboquant_npu_async_8stages.mp4", fps=FPS)

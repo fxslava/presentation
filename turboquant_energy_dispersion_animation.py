@@ -1,7 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation
 from scipy.stats import ortho_group, norm
+
+import deck_style as ds
 
 # 1. Simulation parameters
 np.random.seed(42)
@@ -30,8 +32,11 @@ def get_rotation_matrix(t: float) -> np.ndarray:
 
 # 4. Canvas configuration
 plt.style.use('dark_background')
-fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.6), dpi=120)
-fig.patch.set_facecolor('#0d1117')
+# Strict 16:9 so the video fills the 10 x 5.625in slide edge to edge.
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=ds.FIGSIZE_16_9, dpi=ds.DPI_16_9)
+# Flat deck black so the full-bleed frame blends into the slide artwork.
+ds.apply_figure_background(fig)
+ds.clear_axes_background(ax1, ax2)
 
 color_spike = np.array([1.0, 0.30, 0.43])      # Vivid crimson for outliers
 color_gaussian = np.array([0.30, 0.79, 0.94])   # Cyan for Gaussianized states
@@ -44,6 +49,8 @@ bins = np.linspace(-x_max_hist, x_max_hist, 45)
 def update(frame: int):
     ax1.clear()
     ax2.clear()
+    # clear() restores the stylesheet fill, so re-apply transparency here.
+    ds.clear_axes_background(ax1, ax2)
 
     t = frame / (FRAMES - 1)
     R_t = get_rotation_matrix(t)
@@ -53,7 +60,6 @@ def update(frame: int):
     current_color = (1.0 - t) * color_spike + t * color_gaussian
 
     # --- Left Subplot: Coordinate-wise Amplitude Profile ---
-    ax1.set_facecolor('#161b22')
     markerline, stemlines, _ = ax1.stem(
         range(D), x_current, linefmt='-', markerfmt='o', basefmt=' '
     )
@@ -75,10 +81,9 @@ def update(frame: int):
     ax1.legend(loc='upper right', framealpha=0.35, fontsize=9)
 
     # --- Right Subplot: Empirical Density vs. CLT Gaussian Limit ---
-    ax2.set_facecolor('#161b22')
     ax2.hist(
         x_current, bins=bins, density=True, color=current_color,
-        alpha=0.65, edgecolor='#0d1117'
+        alpha=0.65, edgecolor=ds.DECK_BG
     )
 
     # Theoretical variance by norm conservation: sigma^2 = ||x||^2 / D
@@ -105,9 +110,6 @@ def update(frame: int):
     plt.tight_layout()
 
 if __name__ == "__main__":
-    output_filename = "turboquant_dispersion_en.gif"
-    print(f"Rendering {output_filename}...")
     anim = FuncAnimation(fig, update, frames=FRAMES, interval=1000 // FPS)
-    anim.save(output_filename, writer=PillowWriter(fps=FPS))
+    ds.save_animation(anim, "turboquant_dispersion_en.mp4", fps=FPS)
     plt.close()
-    print("Dispersion animation created successfully.")
