@@ -400,7 +400,7 @@ add_title(slide_prefill, "Prefill Phase Dataflow: Exploiting Cube with Batched W
 # Схема несёт формулы и размерности; текст снизу -- только вывод по железу.
 add_side_image(slide_prefill, "dataflow_prefill.png", left=0.5, top=0.90, width=9.0)
 
-add_block(slide_prefill, 4.78, "Why the rotation is profitable on the Cube here", GREEN_COLOR, [
+add_block(slide_prefill, 4.52, "Why the rotation is profitable on the Cube here", GREEN_COLOR, [
     "Prefill consumes the whole prompt at once: a GEMM row count of B × S fully populates the 16 × 16 × C0 systolic tiles,",
     "so the Hadamard rotation is nearly free on top of the projection it is fused with — K is rotated on the Cube, before Attention."
 ], width=9.0, line_spacing=1.15, title_size=12, body_size=10)

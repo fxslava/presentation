@@ -101,7 +101,8 @@ def tensor(ax, cx, cy, w, h, color, dims=None, layers=1, label=None,
     return cx + w / 2 + (layers - 1) * dx
 
 
-def kv_cache(ax, cx, cy, w, h, color, dims=None, layers=3, title=None):
+def kv_cache(ax, cx, cy, w, h, color, dims=None, layers=3, title=None,
+             title_dx=0.0, title_ha='center'):
     """Хранилище KV: цилиндр, внутри -- лежащие друг на друге страницы кэша."""
     ry = _x_of(ax, 0.0) or 0.0
     ell_h = h * 0.16
@@ -123,8 +124,9 @@ def kv_cache(ax, cx, cy, w, h, color, dims=None, layers=3, title=None):
                                facecolor=color, alpha=0.35, edgecolor=color,
                                linewidth=0.8, zorder=5))
     if title:
-        ax.text(cx, cy + h / 2 + 0.03, title, color=color, fontsize=FS_LANE,
-                ha='center', va='bottom', zorder=5, fontweight='bold')
+        ax.text(cx + title_dx, cy + h / 2 + 0.03, title, color=color,
+                fontsize=FS_LANE, ha=title_ha, va='bottom', zorder=5,
+                fontweight='bold')
     if dims:
         ax.text(cx, cy - h / 2 - 0.035, dims, color=color, fontsize=FS_DIMS,
                 ha='center', va='top', zorder=5, linespacing=1.4)
@@ -330,7 +332,7 @@ def decode_diagram(filename='dataflow_decode.png'):
     H_OP, H_T = 0.115, 0.046
     X_IN, W_IN = 0.036, 0.040
     X_T, W_T = 0.645, 0.036
-    X_CACHE, W_CACHE = 0.745, 0.082
+    X_CACHE, W_CACHE = 0.730, 0.082
     X_TAIL, W_TAIL = 0.905, 0.180
     X_OP1, W_OP1 = 0.245, 0.235
 
@@ -349,7 +351,7 @@ def decode_diagram(filename='dataflow_decode.png'):
     op_block(ax, X_OP1, Y_Q, W_OP1, H_OP,
              r"$\widetilde{Q} = \mathrm{FWHT}(\mathrm{RoPE}(X \cdot W_q))$", CYAN,
              fontsize=9.5)
-    hv(ax, (X_OP1 + W_OP1 / 2, Y_Q), (X_TAIL, 0.800 + 0.098 / 2 + 0.008),
+    hv(ax, (X_OP1 + W_OP1 / 2, Y_Q), (X_TAIL, 0.845 + 0.098 / 2 + 0.008),
        color=CYAN, dims=DIM_B1H)
 
     # --- K, ветка A: без RoPE поворот вплавляется целиком ---
@@ -397,17 +399,18 @@ def decode_diagram(filename='dataflow_decode.png'):
             (X_CACHE - W_CACHE / 2 - 0.004, y_cache), bus_x=0.680, color=color)
 
     kv_cache(ax, X_CACHE, 0.455, W_CACHE, 0.34, ORANGE, layers=1,
-             title="KV-CACHE (INT4)", dims=DIM_B1_INT4)
+             title="KV-CACHE (INT4)", dims=DIM_B1_INT4,
+             title_dx=-0.035, title_ha='left')
 
     # --- Хвост: Score -> softmax -> P*V -> выходная проекция -> выход ---
     # K читается из кэша в Score, V -- в произведение уже после softmax.
     H_ATT = 0.098
-    Y_SCORE, Y_SM, Y_PV, Y_OUT = 0.800, 0.620, 0.440, 0.260
+    Y_SCORE, Y_SM, Y_PV, Y_OUT = 0.845, 0.660, 0.475, 0.290
 
-    hvh(ax, (X_CACHE + W_CACHE / 2 + 0.004, 0.530),
-        (X_TAIL - W_TAIL / 2 - 0.008, Y_SCORE), bus_x=0.802, color=ORANGE)
-    hvh(ax, (X_CACHE + W_CACHE / 2 + 0.004, 0.380),
-        (X_TAIL - W_TAIL / 2 - 0.008, Y_PV), bus_x=0.802, color=ORANGE)
+    hvh(ax, (X_CACHE + W_CACHE / 2 + 0.004, 0.545),
+        (X_TAIL - W_TAIL / 2 - 0.008, Y_SCORE), bus_x=0.796, color=ORANGE)
+    hvh(ax, (X_CACHE + W_CACHE / 2 + 0.004, 0.395),
+        (X_TAIL - W_TAIL / 2 - 0.008, Y_PV), bus_x=0.796, color=ORANGE)
 
     def _step(y_from, y_to, color, dims):
         arrow(ax, (X_TAIL, y_from - H_ATT / 2 - 0.034), (X_TAIL, y_to + H_ATT / 2),
@@ -435,12 +438,16 @@ def decode_diagram(filename='dataflow_decode.png'):
     _step(Y_PV, Y_OUT, CYAN, DIM_B1H)
 
     op_block(ax, X_TAIL, Y_OUT, W_TAIL, H_ATT,
-             r"$O = \widetilde{O} \cdot \widetilde{W}_o$", GREEN, fontsize=9.5,
-             note=r"$\widetilde{W}_o = H^{T} \cdot W_o$ — fully folded," "\n"
-                  "original phase space recovered", note_color=GREEN, note_gap=0.022)
-    arrow(ax, (X_TAIL, Y_OUT - H_ATT / 2 - 0.072), (X_TAIL, Y_V + 0.042), color=GREEN)
-    tensor(ax, X_TAIL, Y_V, 0.05, H_T, GOLD, layers=1, label=r"$O$", dims=DIM_B1D,
-           dims_gap=0.028)
+             r"$O = \widetilde{O} \cdot \widetilde{W}_o$", GREEN, fontsize=9.5)
+    # Подпись про вплавление уходит под сам выход: между блоком и тензором
+    # идёт стрелка, и текст она бы проткнула.
+    arrow(ax, (X_TAIL, Y_OUT - H_ATT / 2), (X_TAIL, 0.150 + H_T / 2 + 0.004),
+          color=GREEN)
+    tensor(ax, X_TAIL, 0.150, 0.05, H_T, GOLD, layers=1, label=r"$O$", dims=DIM_B1D,
+           dims_gap=0.026)
+    note(ax, X_TAIL, 0.036,
+         r"$\widetilde{W}_o = H^{T} \cdot W_o$ — fully folded," "\n"
+         "original phase space recovered", GREEN)
 
     ds.save_transparent(fig, filename, pad_inches=0.03)
     return filename
