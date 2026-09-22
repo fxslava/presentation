@@ -1,8 +1,15 @@
+import sys
+
+# Сообщения на русском: в cp1252-консоли print() иначе падает.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, 'reconfigure'):
+        _stream.reconfigure(encoding='utf-8', errors='replace')
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, FFMpegWriter
 from matplotlib.patches import Rectangle
-from scipy.stats import ortho_group
+from scipy.stats import ortho_group, gaussian_kde
 import imageio_ffmpeg
 
 try:
@@ -18,7 +25,14 @@ plt.rcParams['animation.ffmpeg_path'] = imageio_ffmpeg.get_ffmpeg_exe()
 # ==========================================
 # 1 = FP4 (E2M1) vs INT4
 # 2 = FP4 (E1M2) vs Lloyd-Max
-COMPARISON_MODE = 2  
+# Режим можно задать аргументом: python turboquant_hadamard_pdf_evolution.py 1
+COMPARISON_MODE = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+
+# Имена под слайды колоды.
+OUT_FILES = {
+    1: "turboquant_fp4_vs_int4_fwht.mp4",
+    2: "turboquant_e1m2_vs_lloydmax_stem.mp4",
+}
 
 np.random.seed(42)
 D = 128          
@@ -89,17 +103,73 @@ def quantize_and_hist(v, levels, bounds):
     max_v = np.max(np.abs(v))
     if max_v == 0: return np.zeros(len(levels)), 0
     v_norm = v / max_v
-    
+
     idx = np.abs(v_norm[:, None] - levels[None, :]).argmin(axis=1)
     v_q = levels[idx] * max_v
-    
+
     noise_power = np.mean((v - v_q)**2)
     signal_power = np.mean(v**2)
     snr = 10 * np.log10(signal_power / noise_power) if noise_power > 1e-9 else 99.0
-    
+
     hist_bins = np.concatenate(([-np.inf], bounds[1:-1], [np.inf]))
     counts, _ = np.histogram(v_norm, bins=hist_bins)
     return counts, snr
+
+
+# ==========================================
+# 2b. KL-ДИВЕРГЕНЦИЯ: СКОЛЬКО ИНФОРМАЦИИ СЪЕДАЕТ СЕТКА
+# ==========================================
+# SNR меряет энергию ошибки, но ничего не говорит о том, сохранила ли сетка
+# форму распределения. KL(p || q) как раз про это: p -- непрерывная плотность
+# сигнала (KDE), q -- плотность, которую способна выразить сетка: вся масса
+# ячейки размазана по её ширине, потому что внутри ячейки квантователь не
+# различает ничего. Узкие ячейки там, где плотность высокая -> KL мал.
+# Точек на ячейку. Интегрировать по общей сетке нельзя: её узлы не попадают
+# на границы ячеек, крайние срезы теряются, масса ячейки занижается -- и KL
+# раздувается тем сильнее, чем уже ячейка. Отдельная сетка на ячейку ставит
+# границы точно; значение сходится уже к 32 точкам.
+KL_CELL_SAMPLES = 64
+
+
+def signal_pdf(v_norm):
+    """Непрерывная плотность сигнала (KDE). None, если оценивать нечего."""
+    if np.allclose(v_norm, v_norm[0]):
+        return None
+    return gaussian_kde(v_norm)
+
+
+def kl_divergence_bits(kde, bounds):
+    """KL(p || q) в битах между плотностью сигнала и разрешением сетки.
+
+    q кусочно-постоянна: на ячейке [b_i, b_i+1] она равна вероятностной массе
+    этой ячейки, делённой на её ширину -- ровно то, что квантователь способен
+    сказать о значении внутри ячейки. Узкие ячейки там, где плотность высокая,
+    дают маленький KL; широкий провал между экспонентами FP4 -- большой.
+    """
+    if kde is None:
+        return 0.0
+
+    cells = [np.linspace(lo, hi, KL_CELL_SAMPLES)
+             for lo, hi in zip(bounds[:-1], bounds[1:])]
+    densities = [np.maximum(kde(cell), 0.0) for cell in cells]
+
+    # Нормировка на носитель сетки, чтобы сумма масс ячеек была ровно 1.
+    total = sum(np.trapezoid(p, cell) for p, cell in zip(densities, cells))
+    if total <= 0:
+        return 0.0
+
+    kl = 0.0
+    for p, cell in zip(densities, cells):
+        p = p / total
+        mass = np.trapezoid(p, cell)
+        width = cell[-1] - cell[0]
+        if mass <= 1e-12 or width <= 0:
+            continue
+        nz = p > 1e-12
+        if not nz.any():
+            continue
+        kl += np.trapezoid(p[nz] * np.log2(p[nz] / (mass / width)), cell[nz])
+    return max(kl, 0.0)
 
 # ==========================================
 # 3. ПОДГОТОВКА ХОЛСТА И ГРАФИКОВ
@@ -164,8 +234,9 @@ for i, ax in enumerate(axes_quant):
         ax.add_patch(rect)
         hist_patches[i].append(rect)
     
-    txt = ax.text(0.05, 0.95, "SNR: 0.00 dB", transform=ax.transAxes, 
-                  color=colors_quant[i], fontsize=14, fontweight='bold', va='top')
+    txt = ax.text(0.05, 0.95, "SNR: 0.00 dB\nKL:  0.000 bit", transform=ax.transAxes,
+                  color=colors_quant[i], fontsize=14, fontweight='bold', va='top',
+                  linespacing=1.4)
     snr_texts.append(txt)
 
 # ==========================================
@@ -202,20 +273,24 @@ def update(frame: int):
     ax_sig.axhline(-curr_max, color='#fca311', linestyle='--', alpha=0.75)
     ax_sig.legend(loc='upper right', framealpha=0.35, fontsize=9)
 
+    # Плотность считается один раз: нормировка v/absmax от сетки не зависит.
+    kde_current = signal_pdf(x_current / np.max(np.abs(x_current)))
+
     for i, levels in enumerate(levels_list):
         bounds = bounds_list[i]
         counts, snr = quantize_and_hist(x_current, levels, bounds)
-        
+        kl = kl_divergence_bits(kde_current, bounds)
+
         for j, rect in enumerate(hist_patches[i]):
             scaled_height = (counts[j] / D) * 0.95
             rect.set_height(scaled_height)
             rect.set_facecolor(current_color)
-            
-        snr_texts[i].set_text(f"SNR: {snr:.2f} dB")
+
+        snr_texts[i].set_text(f"SNR: {snr:.2f} dB\nKL:  {kl:.3f} bit")
         if t > 0.9:
-            if "Lloyd" in titles_quant[i] or "INT4" in titles_quant[i]: 
+            if "Lloyd" in titles_quant[i] or "INT4" in titles_quant[i]:
                 snr_texts[i].set_color(GREEN)
-            else: 
+            else:
                 snr_texts[i].set_color(color_spike)
 
     return [] 
@@ -227,8 +302,8 @@ if __name__ == "__main__":
     mode_name = "FP4_vs_INT4" if COMPARISON_MODE == 1 else "E1M2_vs_LloydMax"
     print(f"Рендеринг анимации (Режим: {mode_name})...")
     anim = FuncAnimation(fig, update, frames=FRAMES, interval=1000 // FPS)
-    
-    out_file = f"turboquant_{mode_name.lower()}_stem.mp4"
+
+    out_file = OUT_FILES[COMPARISON_MODE]
     if HAS_DECK_STYLE:
         ds.save_animation(anim, out_file, fps=FPS)
     else:

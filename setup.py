@@ -17,6 +17,7 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.oxml import parse_xml
 
+import dataflow_diagrams
 import deck_style as ds
 
 # --- Премиальная корпоративная палитра (Black & Gold) ---
@@ -138,14 +139,15 @@ def add_title(slide, text):
     p.font.color.rgb = TEXT_COLOR
     return tf
 
-def add_block(slide, top, title, title_color, content, line_spacing=1.1, width=9.0):
-    box = slide.shapes.add_textbox(Inches(0.5), Inches(top), Inches(width), Inches(1.2))
+def add_block(slide, top, title, title_color, content, line_spacing=1.1, width=9.0,
+              left=0.5, title_size=14, body_size=11):
+    box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(1.2))
     tf = box.text_frame
     tf.word_wrap = True
 
     p = tf.paragraphs[0]
     p.text = title
-    p.font.size = Pt(14)
+    p.font.size = Pt(title_size)
     p.font.bold = True
     p.font.color.rgb = title_color
     p.space_after = Pt(2)
@@ -153,7 +155,7 @@ def add_block(slide, top, title, title_color, content, line_spacing=1.1, width=9
     for line in content:
         p = tf.add_paragraph()
         p.text = line
-        p.font.size = Pt(11)
+        p.font.size = Pt(body_size)
         p.font.color.rgb = GRAY_COLOR
         p.line_spacing = line_spacing
         p.space_before = Pt(3)
@@ -259,8 +261,10 @@ def add_fullscreen_video_slide(video_filename):
     return slide
 
 
-# Иллюстрация формулы собирается здесь же, перед сборкой колоды.
+# Иллюстрации собираются здесь же, перед сборкой колоды.
 generate_formula_image()
+dataflow_diagrams.prefill_diagram()
+dataflow_diagrams.decode_diagram()
 
 prs = Presentation()
 prs.slide_width = Inches(10)
@@ -354,13 +358,23 @@ add_block(slide4, 2.1, "Mechanics of the New Representation: Polar/Rotational Qu
 ])
 
 # ==========================================
-# SLIDE 5 & 6: Animations (Dispersion & Signs)
+# SLIDE 5: Animation (Dispersion)
 # ==========================================
 add_fullscreen_video_slide("turboquant_dispersion_en.mp4")
+
+# ==========================================
+# SLIDE 6 & 7: What the Gaussianized signal does to a 4-bit grid
+# ==========================================
+add_fullscreen_video_slide("turboquant_fp4_vs_int4_fwht.mp4")
+add_fullscreen_video_slide("turboquant_e1m2_vs_lloydmax_stem.mp4")
+
+# ==========================================
+# SLIDE 8: Animation (Random Signs)
+# ==========================================
 add_fullscreen_video_slide("turboquant_hadamard_random_signs_en.mp4")
 
 # ==========================================
-# SLIDE 7: Integration Outline
+# SLIDE 9: Integration Outline
 # ==========================================
 slide7 = new_slide()
 add_title(slide7, "TurboQuant Integration Strategy: Table of Contents")
@@ -378,7 +392,35 @@ add_block(slide7, 4.2, "Phase 4: Silicon Validation & E2E Benchmarks", GREEN_COL
 ], line_spacing=1.3)
 
 # ==========================================
-# SLIDE 8: The FWHT Bottleneck & Benchmarks
+# SLIDE 10: Prefill Dataflow (NEW)
+# ==========================================
+slide_prefill = new_slide()
+add_title(slide_prefill, "Prefill Phase Dataflow: Exploiting Cube with Batched WHT Fusion")
+
+# Схема несёт формулы и размерности; текст снизу -- только вывод по железу.
+add_side_image(slide_prefill, "dataflow_prefill.png", left=0.5, top=0.90, width=9.0)
+
+add_block(slide_prefill, 4.78, "Why the rotation is profitable on the Cube here", GREEN_COLOR, [
+    "Prefill consumes the whole prompt at once: a GEMM row count of B × S fully populates the 16 × 16 × C0 systolic tiles,",
+    "so the Hadamard rotation is nearly free on top of the projection it is fused with — K is rotated on the Cube, before Attention."
+], width=9.0, line_spacing=1.15, title_size=12, body_size=10)
+
+# ==========================================
+# SLIDE 11: Decode Dataflow (NEW)
+# ==========================================
+slide_decode = new_slide()
+add_title(slide_decode, "Decode Phase Dataflow: AIV Vector Routing & Offline Folding Limits")
+
+add_side_image(slide_decode, "dataflow_decode.png", left=0.5, top=0.90, width=9.0)
+
+add_block(slide_decode, 4.78, "Why the same rotation must leave the Cube", PINK_COLOR, [
+    "Decode emits one token per step: S = 1 means M = 1, so a standalone WHT feeds 1 of 16 systolic rows — 6.25% Cube",
+    "utilisation, 93.75% idle, severely memory-bound. The rotation is folded into offline weights where the algebra permits,",
+    "and offloaded to the AIV where it does not."
+], width=9.0, line_spacing=1.15, title_size=12, body_size=10)
+
+# ==========================================
+# SLIDE 12: The FWHT Bottleneck & Benchmarks
 # ==========================================
 slide8 = new_slide()
 add_title(slide8, "The FWHT Bottleneck & The CUBE Solution")
