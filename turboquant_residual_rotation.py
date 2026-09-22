@@ -10,7 +10,7 @@ plt.rcParams['animation.ffmpeg_path'] = imageio_ffmpeg.get_ffmpeg_exe()
 # ==========================================
 # 1. ПАРАМЕТРЫ СИМУЛЯЦИИ И КВАНТОВАНИЯ
 # ==========================================
-D = 16  # Размерность: 16 (даст ровно 8 двумерных проекций)
+D = 24  # Размерность: 24 (даст ровно 12 двумерных проекций, сетка 4x3)
 FPS = 30
 DURATION = 8  # Длительность в секундах
 TOTAL_FRAMES = FPS * DURATION
@@ -27,10 +27,10 @@ np.random.seed(42)
 query_vector = np.random.randn(D)
 query_vector /= np.linalg.norm(query_vector)
 
-# Амплитуды, фазы и скорости вращения для 8 плоскостей
+# Амплитуды, фазы и скорости вращения для 12 плоскостей
 amplitudes = np.random.uniform(0.6, 1.2, D//2)
 phases = np.random.uniform(0, 2*np.pi, D//2)
-speeds = np.random.uniform(-1.5, 1.5, D//2) # Разные скорости и направления
+speeds = np.random.uniform(-1.5, 1.5, D//2)
 
 # Настройка квантования (4-bit)
 QUANT_BINS = 15 
@@ -54,24 +54,24 @@ plt.style.use('dark_background')
 fig = plt.figure(figsize=(16, 9), dpi=120)
 fig.patch.set_facecolor(BG_COLOR)
 
-# Сетка: 4 строки, 3 колонки. Первые две для проекций, третья для Dot Product
-gs = fig.add_gridspec(4, 3, width_ratios=[1, 1, 1.2], hspace=0.4, wspace=0.3)
+# Сетка: 4 строки, 4 колонки. Первые три колонки для проекций, четвертая для Dot Product
+gs = fig.add_gridspec(4, 4, width_ratios=[1, 1, 1, 1.3], hspace=0.3, wspace=0.15)
 
 axes = []
 for row in range(4):
-    for col in range(2):
+    for col in range(3):
         ax = fig.add_subplot(gs[row, col])
         axes.append(ax)
 
-# График Dot Product занимает всю правую колонку (от 0 до 4 строки)
-ax_dp = fig.add_subplot(gs[:, 2]) 
+# График Dot Product занимает всю четвертую колонку (от 0 до 4 строки)
+ax_dp = fig.add_subplot(gs[:, 3]) 
 
 for i, ax in enumerate(axes):
     ax.set_facecolor(BG_COLOR)
     ax.set_xlim(-MAX_VAL, MAX_VAL)
     ax.set_ylim(-MAX_VAL, MAX_VAL)
     ax.set_aspect('equal')
-    ax.set_title(f"Dims {i*2} & {i*2+1}", color=TEXT_COLOR, fontsize=10, pad=5)
+    ax.set_title(f"Dims {i*2} & {i*2+1}", color=TEXT_COLOR, fontsize=9, pad=3)
     ax.set_xticks([]) # Убираем лишние цифры с осей для чистоты
     ax.set_yticks([])
     
@@ -81,11 +81,10 @@ for i, ax in enumerate(axes):
         ax.axvline(tick, color='#1f2428', lw=0.5, zorder=0)
 
 ax_dp.set_facecolor(BG_COLOR)
-# Увеличим разброс Y, так как вектор теперь 16-мерный
-ax_dp.set_ylim(-1.5, 1.5) 
+# Лимиты Y немного расширены из-за увеличенной размерности вектора D=24
+ax_dp.set_ylim(-2.0, 2.0) 
 ax_dp.set_xlim(-0.5, 2.5)
 ax_dp.set_xticks([0, 1, 2])
-# Текст разбит на две строки для узкой колонки
 ax_dp.set_xticklabels(["FP16\n(Reference)", "Raw\n4-bit", "4-bit +\n1-bit"], color=TEXT_COLOR, fontsize=12)
 ax_dp.set_title("Dot Product Preservation\n(Query · Key)", color=TEXT_COLOR, fontsize=14, pad=15)
 ax_dp.axhline(0, color='#30363d', lw=2)
@@ -96,14 +95,14 @@ quivers_corr = []
 bars = ax_dp.bar([0, 1, 2], [0, 0, 0], color=[GOLD, GRAY, GREEN], width=0.7)
 
 for ax in axes:
-    q_ref = ax.quiver(0, 0, 0, 0, color=GOLD, angles='xy', scale_units='xy', scale=1, width=0.012, zorder=3)
-    q_q = ax.quiver(0, 0, 0, 0, color=GRAY, angles='xy', scale_units='xy', scale=1, width=0.018, zorder=2, alpha=0.6)
-    q_corr = ax.quiver(0, 0, 0, 0, color=GREEN, angles='xy', scale_units='xy', scale=1, width=0.010, zorder=4)
+    q_ref = ax.quiver(0, 0, 0, 0, color=GOLD, angles='xy', scale_units='xy', scale=1, width=0.015, zorder=3)
+    q_q = ax.quiver(0, 0, 0, 0, color=GRAY, angles='xy', scale_units='xy', scale=1, width=0.022, zorder=2, alpha=0.6)
+    q_corr = ax.quiver(0, 0, 0, 0, color=GREEN, angles='xy', scale_units='xy', scale=1, width=0.012, zorder=4)
     quivers_ref.append(q_ref)
     quivers_q.append(q_q)
     quivers_corr.append(q_corr)
 
-fig.text(0.5, 0.02, "TurboQuant Polar/Residual Quantization Simulation (D=16)", 
+fig.text(0.5, 0.02, "TurboQuant Polar/Residual Quantization Simulation (D=24)", 
          ha='center', va='center', color=TEXT_COLOR, fontsize=14, fontweight='bold')
 
 # ==========================================
@@ -139,7 +138,7 @@ def update(frame):
         
     [t.remove() for t in ax_dp.texts] 
     for i, val in enumerate(vals):
-        y_pos = val + 0.05 if val >= 0 else val - 0.15
+        y_pos = val + 0.08 if val >= 0 else val - 0.18
         ax_dp.text(i, y_pos, f"{val:.3f}", ha='center', color='white', fontweight='bold', fontsize=12)
 
     return quivers_ref + quivers_q + quivers_corr + list(bars)
@@ -147,10 +146,10 @@ def update(frame):
 # ==========================================
 # 4. СОХРАНЕНИЕ
 # ==========================================
-print("Рендеринг видео (4x2 Grid)...")
+print("Рендеринг видео (4x3 Grid)...")
 anim = FuncAnimation(fig, update, frames=TOTAL_FRAMES, interval=1000//FPS, blit=False)
 
-writer = FFMpegWriter(fps=FPS, bitrate=6000, metadata=dict(title='TurboQuant Residual Simulation Grid'))
+writer = FFMpegWriter(fps=FPS, bitrate=6000, metadata=dict(title='TurboQuant Residual Simulation 4x3 Grid'))
 output_file = "turboquant_1bit_correction.mp4"
 anim.save(output_file, writer=writer)
 
