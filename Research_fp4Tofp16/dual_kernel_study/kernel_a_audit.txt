@@ -1,0 +1,59 @@
+
+Ascend Static Kernel Analyzer
+──────────────────────────────────────────────────────────────────────────────
+  source      naive_aiv_fp4_to_fp16.cpp
+  target      Ascend 910B (Atlas A2 training series)
+  solver      z3    kernels: naive_aiv_fp4_to_fp16
+
+Findings
+──────────────────────────────────────────────────────────────────────────────
+  No findings. Layout and synchronisation verified.
+
+SRAM footprint - naive_aiv_fp4_to_fp16
+──────────────────────────────────────────────────────────────────────────────
+  ┌─ UB · Unified Buffer (vector scratchpad) ────────────────────────────────────────────┐
+  │ capacity 196608 B (192.0 KiB)  high-water 108416 B (55.14%)  20 tensors              │
+  │ window 0x00000..0x1A780   1 column = 2464 B                                          │
+  │                                                                                      │
+  │ w8           ▒▒                                           [0x00000,0x01000)   4096 B │
+  │ wUb          ▒▒                                           [0x00000,0x01000)   4096 B │
+  │ s8              ▒                                         [0x02000,0x02200)    512 B │
+  │ sUb             ▒                                         [0x02000,0x02200)    512 B │
+  │ outUb           ▒▒▒▒▒▒▒▒                                  [0x02400,0x06400)  16384 B │
+  │ outV            ▒▒▒▒▒▒▒▒                                  [0x02400,0x06400)  16384 B │
+  │ s16pool                       ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ [0x0A400,0x1A780)  66432 B │
+  │ s8pool                        ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ [0x0A400,0x1A780)  66432 B │
+  │ sFpool                        ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ [0x0A400,0x1A780)  66432 B │
+  │ codesLo                       ▒▒                          [0x0A420,0x0B420)   4096 B │
+  │ codesHi                        ▒▒▒                        [0x0B440,0x0C440)   4096 B │
+  │ mag                              ▒▒▒                      [0x0C460,0x0D460)   4096 B │
+  │ msk                                ▒▒                     [0x0D480,0x0E480)   4096 B │
+  │ const7                              ▒▒▒                   [0x0E4A0,0x0F4A0)   4096 B │
+  │ const15                               ▒▒▒                 [0x0F4C0,0x104C0)   4096 B │
+  │ h                                       ▒▒▒▒              [0x104E0,0x124E0)   8192 B │
+  │ t                                          ▒▒▒▒           [0x12560,0x14560)   8192 B │
+  │ scaleI16                                      ▒▒▒▒▒       [0x14620,0x16620)   8192 B │
+  │ negT                                              ▒▒▒▒    [0x16720,0x18720)   8192 B │
+  │ zeroF                                                ▒▒▒▒ [0x18780,0x1A780)   8192 B │
+  │ (gap)         ···                                             4096 B free at 0x01000 │
+  │ (gap)           ·                                              512 B free at 0x02200 │
+  │ (gap)                  ········                              16384 B free at 0x06400 │
+  │ ▒ = shared with another live tensor (20 tensors affected)                            │
+  └──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+Pipeline performance - naive_aiv_fp4_to_fp16
+──────────────────────────────────────────────────────────────────────────────
+  estimated makespan    740 cycles   (analytical model)
+  concurrency           72%   overlap across 2 pipelines
+  bottleneck            COMPUTE_BOUND   per-flag hand-off 30 cycles
+
+  utilization per pipeline
+    PIPE_MTE2 [████████████··············]  44%  busy   328  stall     0
+    PIPE_V    [██████████████████████████] 100%  busy   740  stall     0
+    stall = cycles the queue sat at a WaitFlag with nothing else issued
+
+──────────────────────────────────────────────────────────────────────────────
+  0 fatal   0 warning   0 info
+  ACCEPTED  layout and synchronisation verified.
+

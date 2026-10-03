@@ -1,0 +1,142 @@
+
+Ascend Static Kernel Analyzer
+──────────────────────────────────────────────────────────────────────────────
+  source      cube_trick_fp4_to_fp16.cpp
+  target      Ascend 910B (Atlas A2 training series)
+  solver      z3    kernels: cube_trick_fp4_to_fp16
+
+Findings
+──────────────────────────────────────────────────────────────────────────────
+
+    1. INFO  AKA3004  Fragmented SRAM layout
+       cube_trick_fp4_to_fp16.cpp:589   domain: L1
+       L1 layout leaves 1024 B (50%) unclaimed below the high-water mark of 2048 B
+          589 | extern "C" __global__ __aicore__ void cube_trick_fp4_to_fp16(G
+                                                 ^
+       fix:
+         Compact the layout so tiles are contiguous; the reclaimed 1024 B
+         would allow a larger tile and fewer loop iterations.
+
+    2. INFO  AKA3004  Fragmented SRAM layout
+       cube_trick_fp4_to_fp16.cpp:589   domain: L0A
+       L0A layout leaves 512 B (50%) unclaimed below the high-water mark of 1024 B
+          589 | extern "C" __global__ __aicore__ void cube_trick_fp4_to_fp16(G
+                                                 ^
+       fix:
+         Compact the layout so tiles are contiguous; the reclaimed 512 B
+         would allow a larger tile and fewer loop iterations.
+
+    3. INFO  AKA3004  Fragmented SRAM layout
+       cube_trick_fp4_to_fp16.cpp:589   domain: L0B
+       L0B layout leaves 512 B (50%) unclaimed below the high-water mark of 1024 B
+          589 | extern "C" __global__ __aicore__ void cube_trick_fp4_to_fp16(G
+                                                 ^
+       fix:
+         Compact the layout so tiles are contiguous; the reclaimed 512 B
+         would allow a larger tile and fewer loop iterations.
+
+    4. INFO  AKA3004  Fragmented SRAM layout
+       cube_trick_fp4_to_fp16.cpp:589   domain: L0C
+       L0C layout leaves 2048 B (67%) unclaimed below the high-water mark of 3072 B
+          589 | extern "C" __global__ __aicore__ void cube_trick_fp4_to_fp16(G
+                                                 ^
+       fix:
+         Compact the layout so tiles are contiguous; the reclaimed 2048 B
+         would allow a larger tile and fewer loop iterations.
+
+SRAM footprint - cube_trick_fp4_to_fp16
+──────────────────────────────────────────────────────────────────────────────
+  ┌─ UB · Unified Buffer (vector scratchpad) ────────────────────────────────────────────┐
+  │ capacity 196608 B (192.0 KiB)  high-water 5920 B (3.01%)  12 tensors                 │
+  │ window 0x00000..0x01720   1 column = 135 B                                           │
+  │                                                                                      │
+  │ c16          ▒▒▒▒                                         [0x00000,0x00200)    512 B │
+  │ cI           ▒▒▒▒                                         [0x00000,0x00200)    512 B │
+  │ cUb          ▒▒▒▒                                         [0x00000,0x00200)    512 B │
+  │ s8                  ▒                                     [0x00400,0x00420)     32 B │
+  │ sUb                 ▒                                     [0x00400,0x00420)     32 B │
+  │ outUb                ▒▒▒▒                                 [0x00440,0x00640)    512 B │
+  │ outV                 ▒▒▒▒                                 [0x00440,0x00640)    512 B │
+  │ s16pool                     ▒▒▒▒▒████████████▒▒▒▒▒▒▒▒▒▒▒▒ [0x00840,0x01720)   3808 B │
+  │ expOff                      ▒▒▒▒▒                         [0x00860,0x00A60)    512 B │
+  │ absC                                         ▒▒▒▒         [0x010E0,0x012E0)    512 B │
+  │ mask01                                           ▒▒▒▒     [0x01300,0x01500)    512 B │
+  │ sumI                                                 ▒▒▒▒ [0x01520,0x01720)    512 B │
+  │ (gap)           ·····                                          512 B free at 0x00200 │
+  │ (gap)               ··                                          32 B free at 0x00420 │
+  │ (gap)                   ·····                                  512 B free at 0x00640 │
+  │ ▒ = shared with another live tensor (12 tensors affected)                            │
+  └──────────────────────────────────────────────────────────────────────────────────────┘
+
+  ┌─ L1 · L1 Buffer (shared staging) ────────────────────────────────────────────────────┐
+  │ capacity 524288 B (512.0 KiB)  high-water 2048 B (0.39%)  2 tensors                  │
+  │ window 0x00000..0x00800   1 column = 47 B                                            │
+  │                                                                                      │
+  │ a1                      ███████████                       [0x00200,0x00400)    512 B │
+  │ b1                                            ███████████ [0x00600,0x00800)    512 B │
+  │ (gap)        ···········                                       512 B free at 0x00000 │
+  │ (gap)                              ···········                 512 B free at 0x00400 │
+  └──────────────────────────────────────────────────────────────────────────────────────┘
+
+  ┌─ L0A · Cube A (left matrix) ─────────────────────────────────────────────────────────┐
+  │ capacity 65536 B (64.0 KiB)  high-water 1024 B (1.56%)  1 tensors                    │
+  │ window 0x00000..0x00400   1 column = 24 B                                            │
+  │                                                                                      │
+  │ l0aT                               ██████████████████████ [0x00200,0x00400)    512 B │
+  │ (gap)        ······················                            512 B free at 0x00000 │
+  └──────────────────────────────────────────────────────────────────────────────────────┘
+
+  ┌─ L0B · Cube B (right matrix) ────────────────────────────────────────────────────────┐
+  │ capacity 65536 B (64.0 KiB)  high-water 1024 B (1.56%)  1 tensors                    │
+  │ window 0x00000..0x00400   1 column = 24 B                                            │
+  │                                                                                      │
+  │ l0bT                               ██████████████████████ [0x00200,0x00400)    512 B │
+  │ (gap)        ······················                            512 B free at 0x00000 │
+  └──────────────────────────────────────────────────────────────────────────────────────┘
+
+  ┌─ L0C · Cube C (accumulator) ─────────────────────────────────────────────────────────┐
+  │ capacity 131072 B (128.0 KiB)  high-water 3072 B (2.34%)  1 tensors                  │
+  │ window 0x00000..0x00C00   1 column = 70 B                                            │
+  │                                                                                      │
+  │ l0cT                                      ███████████████ [0x00800,0x00C00)   1024 B │
+  │ (gap)        ······························                   2048 B free at 0x00000 │
+  └──────────────────────────────────────────────────────────────────────────────────────┘
+
+
+Pipeline synchronisation - cube_trick_fp4_to_fp16
+──────────────────────────────────────────────────────────────────────────────
+  pipelines in use     PIPE_M, PIPE_FIX, PIPE_MTE1, PIPE_S, PIPE_MTE2, PIPE_V
+  flag operations      42
+  matched set/wait     20
+  loop-carried pairs   6
+  dependency graph     acyclic  (topological order exists: no circular wait)
+
+  pipeline timeline (program order per pipe)
+    PIPE_M     SSWWVSSWWVSSWW
+    PIPE_FIX   SSWVSWVS
+    PIPE_MTE1  SSWWVVBSSWWVVBSSWW
+    PIPE_S     SS
+    PIPE_MTE2  WWCCSWWCCSWWCCC
+    PIPE_V     VVVVVVVVV
+    legend: S=SetFlag  W=WaitFlag  B=PipeBarrier  C=DataCopy  V=compute
+
+Pipeline performance - cube_trick_fp4_to_fp16
+──────────────────────────────────────────────────────────────────────────────
+  estimated makespan    205 cycles   (analytical model)
+  concurrency           22%   overlap across 6 pipelines
+  bottleneck            SYNC_BOUND   per-flag hand-off 30 cycles
+  serialized tail       1 cycles   0% of the makespan
+
+  utilization per pipeline
+    PIPE_S    [··························]   1%  busy     2  stall     0
+    PIPE_MTE2 [███████···················]  28%  busy    57  stall    31
+    PIPE_MTE1 [██████····················]  22%  busy    46  stall    78
+    PIPE_M    [██························]   8%  busy    16  stall   144
+    PIPE_V    [██████████████············]  53%  busy   109  stall     0
+    PIPE_FIX  [█████·····················]  19%  busy    38  stall   167
+    stall = cycles the queue sat at a WaitFlag with nothing else issued
+
+──────────────────────────────────────────────────────────────────────────────
+  0 fatal   0 warning   4 info
+  ACCEPTED  layout and synchronisation verified.
+

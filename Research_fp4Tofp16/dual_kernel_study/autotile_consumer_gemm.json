@@ -1,0 +1,152 @@
+{
+  "arch": "ascend910b",
+  "problem": {
+    "op_type": "gemm",
+    "m": 2048,
+    "n": 4096,
+    "k": 4096,
+    "batch": 1,
+    "in_dtype": "fp16",
+    "out_dtype": "fp16",
+    "cores": 1,
+    "epilogue": []
+  },
+  "search": {
+    "grid_size": 729,
+    "evaluated": 8000,
+    "pruned": 873,
+    "elapsed_s": 0.9389,
+    "us_per_evaluation": 117.4,
+    "truncated": true,
+    "numpy_accelerated": true,
+    "options": {
+      "topk": 2,
+      "max_tile": 512,
+      "max_evaluations": 8000,
+      "max_tile_values": 9,
+      "max_subtile_values": 3,
+      "require_feasible": true,
+      "unique_outer_tiles": true,
+      "forbid_tails": false,
+      "loop_orders": [
+        "M_first",
+        "N_first"
+      ],
+      "buffer_plans": [
+        {
+          "l1_depth": 2,
+          "l0_depth": 2,
+          "l0c_depth": 1,
+          "ub_depth": 2
+        }
+      ],
+      "tail_complexity_weight": 0.02,
+      "footprint_weight": 1.0,
+      "time_budget_s": null
+    }
+  },
+  "best": {
+    "rank": 1,
+    "score": 65.665,
+    "tile": {
+      "tile_m": 128,
+      "tile_n": 256,
+      "tile_k": 256,
+      "sub_m": 128,
+      "sub_n": 128,
+      "sub_k": 128
+    },
+    "buffers": {
+      "l1_depth": 2,
+      "l0_depth": 2,
+      "l0c_depth": 1,
+      "ub_depth": 2
+    },
+    "loop_order": "M_first",
+    "cube_utilization_pct": 66.66,
+    "limiting_stage": "MTE2_STARVATION",
+    "fractal_efficiency": 1.0,
+    "requires_set_tail": false,
+    "peak_sram_occupancy_pct": 100.0,
+    "total_us": 6990.682,
+    "achieved_tflops_single_core": 9.83,
+    "sram_footprints": {
+      "L1": 393216,
+      "L0A": 65536,
+      "L0B": 65536,
+      "L0C": 131072,
+      "UB": 0
+    },
+    "is_valid": true
+  },
+  "candidates": [
+    {
+      "rank": 1,
+      "score": 65.665,
+      "tile": {
+        "tile_m": 128,
+        "tile_n": 256,
+        "tile_k": 256,
+        "sub_m": 128,
+        "sub_n": 128,
+        "sub_k": 128
+      },
+      "buffers": {
+        "l1_depth": 2,
+        "l0_depth": 2,
+        "l0c_depth": 1,
+        "ub_depth": 2
+      },
+      "loop_order": "M_first",
+      "cube_utilization_pct": 66.66,
+      "limiting_stage": "MTE2_STARVATION",
+      "fractal_efficiency": 1.0,
+      "requires_set_tail": false,
+      "peak_sram_occupancy_pct": 100.0,
+      "total_us": 6990.682,
+      "achieved_tflops_single_core": 9.83,
+      "sram_footprints": {
+        "L1": 393216,
+        "L0A": 65536,
+        "L0B": 65536,
+        "L0C": 131072,
+        "UB": 0
+      },
+      "is_valid": true
+    },
+    {
+      "rank": 2,
+      "score": 65.665,
+      "tile": {
+        "tile_m": 256,
+        "tile_n": 128,
+        "tile_k": 256,
+        "sub_m": 256,
+        "sub_n": 128,
+        "sub_k": 64
+      },
+      "buffers": {
+        "l1_depth": 2,
+        "l0_depth": 2,
+        "l0c_depth": 1,
+        "ub_depth": 2
+      },
+      "loop_order": "M_first",
+      "cube_utilization_pct": 66.66,
+      "limiting_stage": "MTE2_STARVATION",
+      "fractal_efficiency": 1.0,
+      "requires_set_tail": false,
+      "peak_sram_occupancy_pct": 100.0,
+      "total_us": 6990.682,
+      "achieved_tflops_single_core": 9.83,
+      "sram_footprints": {
+        "L1": 393216,
+        "L0A": 65536,
+        "L0B": 32768,
+        "L0C": 131072,
+        "UB": 0
+      },
+      "is_valid": true
+    }
+  ]
+}

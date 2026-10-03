@@ -1,0 +1,677 @@
+{
+  "arch": "ascend910b",
+  "elements": 8388608,
+  "tiles": 32768,
+  "kernelA_sweep": [
+    {
+      "name": "kernelA_tile4096",
+      "valid": true,
+      "summary": "aiv_naive_t4096: elementwise, VECTOR_BOUND, 62 GB/s single core",
+      "limiting_stage": "VECTOR_BOUND",
+      "secondary": "MTE3",
+      "slack_pct": 64.0,
+      "stages_cyc_per_step": {
+        "MTE2": 64.0,
+        "VECTOR": 355.2,
+        "MTE3": 128.0
+      },
+      "steps": 2048,
+      "total_cycles": 727800,
+      "t_min_cycles": 727800,
+      "t_max_cycles": 1837466,
+      "total_us": 404.333,
+      "traffic": {
+        "mte2_bytes": 8388608,
+        "mte3_bytes": 16777216,
+        "vector_bytes": 186227098
+      },
+      "violations": [],
+      "footprints": {
+        "UB": {
+          "bytes": 24576,
+          "pct": 12.5,
+          "breakdown": {
+            "inputs": 4096,
+            "output": 8192
+          }
+        }
+      },
+      "MTE2_cyc_per_step_corrected": 36.0
+    },
+    {
+      "name": "kernelA_tile8192",
+      "valid": true,
+      "summary": "aiv_naive_t8192: elementwise, VECTOR_BOUND, 62 GB/s single core",
+      "limiting_stage": "VECTOR_BOUND",
+      "secondary": "MTE3",
+      "slack_pct": 64.0,
+      "stages_cyc_per_step": {
+        "MTE2": 128.0,
+        "VECTOR": 710.4,
+        "MTE3": 256.0
+      },
+      "steps": 1024,
+      "total_cycles": 727800,
+      "t_min_cycles": 727800,
+      "t_max_cycles": 1479066,
+      "total_us": 404.333,
+      "traffic": {
+        "mte2_bytes": 8388608,
+        "mte3_bytes": 16777216,
+        "vector_bytes": 186227098
+      },
+      "violations": [],
+      "footprints": {
+        "UB": {
+          "bytes": 49152,
+          "pct": 25.0,
+          "breakdown": {
+            "inputs": 8192,
+            "output": 16384
+          }
+        }
+      },
+      "MTE2_cyc_per_step_corrected": 72.0
+    },
+    {
+      "name": "kernelA_tile16384",
+      "valid": true,
+      "summary": "aiv_naive_t16384: elementwise, VECTOR_BOUND, 62 GB/s single core",
+      "limiting_stage": "VECTOR_BOUND",
+      "secondary": "MTE3",
+      "slack_pct": 64.0,
+      "stages_cyc_per_step": {
+        "MTE2": 256.0,
+        "VECTOR": 1420.8,
+        "MTE3": 512.0
+      },
+      "steps": 512,
+      "total_cycles": 727800,
+      "t_min_cycles": 727800,
+      "t_max_cycles": 1299866,
+      "total_us": 404.333,
+      "traffic": {
+        "mte2_bytes": 8388608,
+        "mte3_bytes": 16777216,
+        "vector_bytes": 186227098
+      },
+      "violations": [],
+      "footprints": {
+        "UB": {
+          "bytes": 98304,
+          "pct": 50.0,
+          "breakdown": {
+            "inputs": 16384,
+            "output": 32768
+          }
+        }
+      },
+      "MTE2_cyc_per_step_corrected": 144.0
+    },
+    {
+      "name": "kernelA_tile24576",
+      "valid": true,
+      "summary": "aiv_naive_t24576: elementwise, VECTOR_BOUND, 62 GB/s single core",
+      "limiting_stage": "VECTOR_BOUND",
+      "secondary": "MTE3",
+      "slack_pct": 64.0,
+      "stages_cyc_per_step": {
+        "MTE2": 383.25,
+        "VECTOR": 2127.05,
+        "MTE3": 766.5
+      },
+      "steps": 342,
+      "total_cycles": 727800,
+      "t_min_cycles": 727800,
+      "t_max_cycles": 1240366,
+      "total_us": 404.333,
+      "traffic": {
+        "mte2_bytes": 8388608,
+        "mte3_bytes": 16777216,
+        "vector_bytes": 186227098
+      },
+      "violations": [],
+      "footprints": {
+        "UB": {
+          "bytes": 147456,
+          "pct": 75.0,
+          "breakdown": {
+            "inputs": 24576,
+            "output": 49152
+          }
+        }
+      },
+      "MTE2_cyc_per_step_corrected": 215.58
+    }
+  ],
+  "kernelA_best": {
+    "name": "kernelA_best",
+    "valid": true,
+    "summary": "aiv_naive_t4096: elementwise, VECTOR_BOUND, 62 GB/s single core",
+    "limiting_stage": "VECTOR_BOUND",
+    "secondary": "MTE3",
+    "slack_pct": 64.0,
+    "stages_cyc_per_step": {
+      "MTE2": 64.0,
+      "VECTOR": 355.2,
+      "MTE3": 128.0
+    },
+    "steps": 2048,
+    "total_cycles": 727800,
+    "t_min_cycles": 727800,
+    "t_max_cycles": 1837466,
+    "total_us": 404.333,
+    "traffic": {
+      "mte2_bytes": 8388608,
+      "mte3_bytes": 16777216,
+      "vector_bytes": 186227098
+    },
+    "violations": [],
+    "footprints": {
+      "UB": {
+        "bytes": 24576,
+        "pct": 12.5,
+        "breakdown": {
+          "inputs": 4096,
+          "output": 8192
+        }
+      }
+    }
+  },
+  "kernelB_sweep": [
+    {
+      "name": "kernelB_P1_fp32stage",
+      "valid": true,
+      "summary": "cube_trick_P1 on ascend910b: FEASIBLE, 4.2% cube utilisation, limited by MTE2_STARVATION, 437.1 us single core",
+      "limiting_stage": "MTE2_STARVATION",
+      "secondary": "MTE1",
+      "slack_pct": 33.3,
+      "stages_cyc_per_step": {
+        "MTE2": 24.0,
+        "MTE1": 16.0,
+        "CUBE": 2.0,
+        "FIXPIPE": 16.0
+      },
+      "steps": 32768,
+      "total_cycles": 786748,
+      "t_min_cycles": 786748,
+      "t_max_cycles": 11730944,
+      "total_us": 437.082,
+      "traffic": {
+        "mte2_a_bytes": 16777216,
+        "mte2_b_bytes": 16777216,
+        "mte2_c_readback_bytes": 0,
+        "mte2_bytes": 33554432,
+        "fixpipe_out_bytes": 33554432,
+        "mte1_bytes": 33554432,
+        "fixpipe_bytes": 33554432,
+        "vector_bytes": 0,
+        "mte3_bytes": 0,
+        "dram_bytes": 67108864
+      },
+      "violations": [
+        "GM_BURST_UNALIGNED: operand A: the contiguous DataCopy run is 32 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+        "GM_BURST_UNALIGNED: operand B: the contiguous DataCopy run is 16 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+        "GM_BURST_UNALIGNED: operand C: the contiguous DataCopy run is 64 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts"
+      ],
+      "footprints": {
+        "L1": {
+          "bytes": 2048,
+          "pct": 0.4,
+          "breakdown": {
+            "A_tile": 512,
+            "B_tile": 512
+          }
+        },
+        "L0A": {
+          "bytes": 1024,
+          "pct": 1.6,
+          "breakdown": {
+            "A_subtile": 512
+          }
+        },
+        "L0B": {
+          "bytes": 1024,
+          "pct": 1.6,
+          "breakdown": {
+            "B_subtile": 512
+          }
+        },
+        "L0C": {
+          "bytes": 1024,
+          "pct": 0.8,
+          "breakdown": {
+            "accumulator_fp32": 1024
+          }
+        },
+        "UB": {
+          "bytes": 0,
+          "pct": 0.0,
+          "breakdown": {}
+        }
+      },
+      "MTE2_cyc_per_step_corrected": 12.0,
+      "cycles_per_256_outputs": 24.01
+    },
+    {
+      "name": "kernelB_P2_fp32stage",
+      "valid": true,
+      "summary": "cube_trick_P2 on ascend910b: FEASIBLE, 6.2% cube utilisation, limited by MTE2_STARVATION, 582.7 us single core",
+      "limiting_stage": "MTE2_STARVATION",
+      "secondary": "MTE1",
+      "slack_pct": 25.0,
+      "stages_cyc_per_step": {
+        "MTE2": 64.0,
+        "MTE1": 48.0,
+        "CUBE": 5.0,
+        "FIXPIPE": 32.0
+      },
+      "steps": 16384,
+      "total_cycles": 1048892,
+      "t_min_cycles": 1048892,
+      "t_max_cycles": 7356416,
+      "total_us": 582.718,
+      "traffic": {
+        "mte2_a_bytes": 33554432,
+        "mte2_b_bytes": 16777216,
+        "mte2_c_readback_bytes": 0,
+        "mte2_bytes": 50331648,
+        "fixpipe_out_bytes": 33554432,
+        "mte1_bytes": 50331648,
+        "fixpipe_bytes": 33554432,
+        "vector_bytes": 0,
+        "mte3_bytes": 0,
+        "dram_bytes": 83886080
+      },
+      "violations": [
+        "GM_BURST_UNALIGNED: operand A: the contiguous DataCopy run is 64 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+        "GM_BURST_UNALIGNED: operand B: the contiguous DataCopy run is 16 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+        "GM_BURST_UNALIGNED: operand C: the contiguous DataCopy run is 64 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts"
+      ],
+      "footprints": {
+        "L1": {
+          "bytes": 6144,
+          "pct": 1.2,
+          "breakdown": {
+            "A_tile": 2048,
+            "B_tile": 1024
+          }
+        },
+        "L0A": {
+          "bytes": 4096,
+          "pct": 6.2,
+          "breakdown": {
+            "A_subtile": 2048
+          }
+        },
+        "L0B": {
+          "bytes": 2048,
+          "pct": 3.1,
+          "breakdown": {
+            "B_subtile": 1024
+          }
+        },
+        "L0C": {
+          "bytes": 2048,
+          "pct": 1.6,
+          "breakdown": {
+            "accumulator_fp32": 2048
+          }
+        },
+        "UB": {
+          "bytes": 0,
+          "pct": 0.0,
+          "breakdown": {}
+        }
+      },
+      "MTE2_cyc_per_step_corrected": 32.0,
+      "cycles_per_256_outputs": 32.01
+    },
+    {
+      "name": "kernelB_P4_fp32stage",
+      "valid": true,
+      "summary": "cube_trick_P4 on ascend910b: FEASIBLE, 8.3% cube utilisation, limited by MTE2_STARVATION, 874.0 us single core",
+      "limiting_stage": "MTE2_STARVATION",
+      "secondary": "MTE1",
+      "slack_pct": 16.7,
+      "stages_cyc_per_step": {
+        "MTE2": 192.0,
+        "MTE1": 160.0,
+        "CUBE": 17.0,
+        "FIXPIPE": 64.0
+      },
+      "steps": 8192,
+      "total_cycles": 1573180,
+      "t_min_cycles": 1573180,
+      "t_max_cycles": 6004736,
+      "total_us": 873.989,
+      "traffic": {
+        "mte2_a_bytes": 67108864,
+        "mte2_b_bytes": 16777216,
+        "mte2_c_readback_bytes": 0,
+        "mte2_bytes": 83886080,
+        "fixpipe_out_bytes": 33554432,
+        "mte1_bytes": 83886080,
+        "fixpipe_bytes": 33554432,
+        "vector_bytes": 0,
+        "mte3_bytes": 0,
+        "dram_bytes": 117440512
+      },
+      "violations": [
+        "GM_BURST_UNALIGNED: operand A: the contiguous DataCopy run is 128 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+        "GM_BURST_UNALIGNED: operand B: the contiguous DataCopy run is 16 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+        "GM_BURST_UNALIGNED: operand C: the contiguous DataCopy run is 64 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts"
+      ],
+      "footprints": {
+        "L1": {
+          "bytes": 20480,
+          "pct": 3.9,
+          "breakdown": {
+            "A_tile": 8192,
+            "B_tile": 2048
+          }
+        },
+        "L0A": {
+          "bytes": 16384,
+          "pct": 25.0,
+          "breakdown": {
+            "A_subtile": 8192
+          }
+        },
+        "L0B": {
+          "bytes": 4096,
+          "pct": 6.2,
+          "breakdown": {
+            "B_subtile": 2048
+          }
+        },
+        "L0C": {
+          "bytes": 4096,
+          "pct": 3.1,
+          "breakdown": {
+            "accumulator_fp32": 4096
+          }
+        },
+        "UB": {
+          "bytes": 0,
+          "pct": 0.0,
+          "breakdown": {}
+        }
+      },
+      "MTE2_cyc_per_step_corrected": 96.0,
+      "cycles_per_256_outputs": 48.01
+    },
+    {
+      "name": "kernelB_P8_fp32stage",
+      "valid": true,
+      "summary": "cube_trick_P8 on ascend910b: FEASIBLE, 10.0% cube utilisation, limited by MTE2_STARVATION, 1456.5 us single core",
+      "limiting_stage": "MTE2_STARVATION",
+      "secondary": "MTE1",
+      "slack_pct": 10.0,
+      "stages_cyc_per_step": {
+        "MTE2": 640.0,
+        "MTE1": 576.0,
+        "CUBE": 65.0,
+        "FIXPIPE": 128.0
+      },
+      "steps": 4096,
+      "total_cycles": 2621756,
+      "t_min_cycles": 2621756,
+      "t_max_cycles": 7000064,
+      "total_us": 1456.531,
+      "traffic": {
+        "mte2_a_bytes": 134217728,
+        "mte2_b_bytes": 16777216,
+        "mte2_c_readback_bytes": 0,
+        "mte2_bytes": 150994944,
+        "fixpipe_out_bytes": 33554432,
+        "mte1_bytes": 150994944,
+        "fixpipe_bytes": 33554432,
+        "vector_bytes": 0,
+        "mte3_bytes": 0,
+        "dram_bytes": 184549376
+      },
+      "violations": [
+        "GM_BURST_UNALIGNED: operand A: the contiguous DataCopy run is 256 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+        "GM_BURST_UNALIGNED: operand B: the contiguous DataCopy run is 16 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+        "GM_BURST_UNALIGNED: operand C: the contiguous DataCopy run is 64 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts"
+      ],
+      "footprints": {
+        "L1": {
+          "bytes": 73728,
+          "pct": 14.1,
+          "breakdown": {
+            "A_tile": 32768,
+            "B_tile": 4096
+          }
+        },
+        "L0A": {
+          "bytes": 65536,
+          "pct": 100.0,
+          "breakdown": {
+            "A_subtile": 32768
+          }
+        },
+        "L0B": {
+          "bytes": 8192,
+          "pct": 12.5,
+          "breakdown": {
+            "B_subtile": 4096
+          }
+        },
+        "L0C": {
+          "bytes": 8192,
+          "pct": 6.2,
+          "breakdown": {
+            "accumulator_fp32": 8192
+          }
+        },
+        "UB": {
+          "bytes": 0,
+          "pct": 0.0,
+          "breakdown": {}
+        }
+      },
+      "MTE2_cyc_per_step_corrected": 320.0,
+      "cycles_per_256_outputs": 80.01
+    }
+  ],
+  "kernelB_fp16stage": {
+    "name": "kernelB_P1_fp16stage",
+    "valid": true,
+    "summary": "cube_trick_P1_fp16stage on ascend910b: FEASIBLE, 4.2% cube utilisation, limited by MTE2_STARVATION, 437.1 us single core",
+    "limiting_stage": "MTE2_STARVATION",
+    "secondary": "MTE1",
+    "slack_pct": 33.3,
+    "stages_cyc_per_step": {
+      "MTE2": 24.0,
+      "MTE1": 16.0,
+      "CUBE": 2.0,
+      "FIXPIPE": 16.0
+    },
+    "steps": 32768,
+    "total_cycles": 786748,
+    "t_min_cycles": 786748,
+    "t_max_cycles": 11730944,
+    "total_us": 437.082,
+    "traffic": {
+      "mte2_a_bytes": 16777216,
+      "mte2_b_bytes": 16777216,
+      "mte2_c_readback_bytes": 0,
+      "mte2_bytes": 33554432,
+      "fixpipe_out_bytes": 16777216,
+      "mte1_bytes": 33554432,
+      "fixpipe_bytes": 33554432,
+      "vector_bytes": 0,
+      "mte3_bytes": 0,
+      "dram_bytes": 50331648
+    },
+    "violations": [
+      "GM_BURST_UNALIGNED: operand A: the contiguous DataCopy run is 32 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+      "GM_BURST_UNALIGNED: operand B: the contiguous DataCopy run is 16 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts",
+      "GM_BURST_UNALIGNED: operand C: the contiguous DataCopy run is 32 B, not a multiple of the 512 B GM burst; MTE2/Fixpipe will waste partial bursts"
+    ],
+    "footprints": {
+      "L1": {
+        "bytes": 2048,
+        "pct": 0.4,
+        "breakdown": {
+          "A_tile": 512,
+          "B_tile": 512
+        }
+      },
+      "L0A": {
+        "bytes": 1024,
+        "pct": 1.6,
+        "breakdown": {
+          "A_subtile": 512
+        }
+      },
+      "L0B": {
+        "bytes": 1024,
+        "pct": 1.6,
+        "breakdown": {
+          "B_subtile": 512
+        }
+      },
+      "L0C": {
+        "bytes": 1024,
+        "pct": 0.8,
+        "breakdown": {
+          "accumulator_fp32": 1024
+        }
+      },
+      "UB": {
+        "bytes": 0,
+        "pct": 0.0,
+        "breakdown": {}
+      }
+    }
+  },
+  "kernelB_aiv_epilogue_fp16": {
+    "name": "kernelB_aiv_epilogue_fp16",
+    "valid": true,
+    "summary": "cube_trick_aiv_epilogue_fp16: elementwise, VECTOR_BOUND, 91 GB/s single core",
+    "limiting_stage": "VECTOR_BOUND",
+    "secondary": "MTE2",
+    "slack_pct": 60.5,
+    "stages_cyc_per_step": {
+      "MTE2": 256.0,
+      "VECTOR": 647.68,
+      "MTE3": 256.0
+    },
+    "steps": 1024,
+    "total_cycles": 663574,
+    "t_min_cycles": 663574,
+    "t_max_cycles": 1545912,
+    "total_us": 368.652,
+    "traffic": {
+      "mte2_bytes": 16777216,
+      "mte3_bytes": 16777216,
+      "vector_bytes": 169785426
+    },
+    "violations": [],
+    "footprints": {
+      "UB": {
+        "bytes": 65536,
+        "pct": 33.3,
+        "breakdown": {
+          "inputs": 16384,
+          "output": 16384
+        }
+      }
+    }
+  },
+  "kernelB_aiv_epilogue": {
+    "name": "kernelB_aiv_epilogue",
+    "valid": true,
+    "summary": "cube_trick_aiv_epilogue: elementwise, VECTOR_BOUND, 76 GB/s single core",
+    "limiting_stage": "VECTOR_BOUND",
+    "secondary": "MTE2",
+    "slack_pct": 56.0,
+    "stages_cyc_per_step": {
+      "MTE2": 512.0,
+      "VECTOR": 1163.52,
+      "MTE3": 256.0
+    },
+    "steps": 1024,
+    "total_cycles": 1191794,
+    "t_min_cycles": 1191794,
+    "t_max_cycles": 2336276,
+    "total_us": 662.108,
+    "traffic": {
+      "mte2_bytes": 33554432,
+      "mte3_bytes": 16777216,
+      "vector_bytes": 305009787
+    },
+    "violations": [],
+    "footprints": {
+      "UB": {
+        "bytes": 98304,
+        "pct": 50.0,
+        "breakdown": {
+          "inputs": 32768,
+          "output": 16384
+        }
+      }
+    }
+  },
+  "per_element_cycles": {
+    "kernelA_best": {
+      "MTE2": 8e-06,
+      "VECTOR": 4.2e-05,
+      "MTE3": 1.5e-05
+    },
+    "kernelB_P1": {
+      "MTE2": 3e-06,
+      "MTE1": 2e-06,
+      "CUBE": 0.0,
+      "FIXPIPE": 2e-06
+    },
+    "kernelB_aiv_epilogue": {
+      "MTE2": 6.1e-05,
+      "VECTOR": 0.000139,
+      "MTE3": 3.1e-05
+    }
+  },
+  "composed": {
+    "note": "single core-pair, whole 8.39M-element problem; AIC/AIV overlap via 2-slot cross-core ping-pong; ramp/drain ignored (<1000 cycles)",
+    "aic_cyc_per_tile": 16.0,
+    "aiv_cyc_per_tile_fp32stage": 100.36,
+    "aiv_cyc_per_tile_fp16stage": 84.24,
+    "kernelA_total_cycles": 2824604,
+    "kernelA_total_us": 1569.2,
+    "kernelB_fp32stage_total_cycles": 3288594,
+    "kernelB_fp32stage_total_us": 1827.0,
+    "kernelB_fp16stage_total_cycles": 2760372,
+    "kernelB_fp16stage_total_us": 1533.5,
+    "chip_level_910b": {
+      "note": "910B: 24 AIC + 48 AIV. Kernel A runs on 48 AIVs; Kernel B on 24 AIC+AIV pairs (24 spare AIVs remain for other work).",
+      "kernelA_per_core_cycles": 58846,
+      "kernelA_per_core_us": 32.7,
+      "kernelB_fp16_per_pair_cycles": 115016,
+      "kernelB_fp16_per_pair_us": 63.9
+    }
+  },
+  "issue_adjustment": {
+    "issue_overhead_cycles_per_duplicate": 4.0,
+    "kernelA": {
+      "dup_issues_per_element": 0.0625,
+      "issue_cyc_per_element": 0.25,
+      "vec_work_cyc_per_element": 0.086719,
+      "vec_total_cyc_per_element": 0.336719
+    },
+    "kernelB_aiv_epilogue_fp32": {
+      "dup_issues_per_element": 0.0625,
+      "issue_cyc_per_element": 0.25,
+      "vec_work_cyc_per_element": 0.142031,
+      "vec_total_cyc_per_element": 0.392031
+    },
+    "kernelB_aiv_epilogue_fp16": {
+      "dup_issues_per_element": 0.0625,
+      "issue_cyc_per_element": 0.25,
+      "vec_work_cyc_per_element": 0.079062,
+      "vec_total_cyc_per_element": 0.329062
+    }
+  }
+}
