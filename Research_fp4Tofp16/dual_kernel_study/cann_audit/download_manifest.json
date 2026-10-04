@@ -1,0 +1,16 @@
+{
+  "release": "9.2.0-beta.2",
+  "architecture": "x86_64",
+  "official_source": "https://github.com/Ascend/cann-container-image/blob/main/cann/9.2.0-beta.2-950-ubuntu22.04-py3.12/Dockerfile",
+  "packages": [
+    "https://ascend-repo.obs.cn-east-2.myhuaweicloud.com/CANN/CANN%209.2.T3/Ascend-cann-toolkit_9.2.0-beta.2_linux-x86_64.run",
+    "https://ascend-repo.obs.cn-east-2.myhuaweicloud.com/CANN/CANN%209.2.T3/Ascend-cann-950-ops_9.2.0-beta.2_linux-x86_64.run"
+  ],
+  "download_directory": "/home/ladislav/cann-build",
+  "container": "fp4-cann92-audit",
+  "status": "installed_verified_toolkit_and_ops950",
+  "toolkit_bytes": 1398240001,
+  "toolkit_md5": "6b5a5dc6d3cf9e9fcf680bf4684906cf",
+  "ops950_bytes": 2850241840,
+  "ops950_md5": "f141319e4e672b5484f5b758213464ee"
+}

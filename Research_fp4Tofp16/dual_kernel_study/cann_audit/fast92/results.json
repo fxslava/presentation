@@ -1,0 +1,503 @@
+{
+  "image": "ascendai/cann:9.2.0-beta.2-910b-ubuntu22.04-py3.12",
+  "digest": "sha256:b82c08f530f956afe7c445361b1454cbcd97aaf60c4093749fe872a9657edcd7",
+  "target_910b": [
+    {
+      "elements": 512,
+      "block": 16,
+      "variant": "simd",
+      "bit_mismatches": 0,
+      "pv_pass": true,
+      "ca_cycles": null,
+      "status": "PV_PASS_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 512,
+      "block": 16,
+      "variant": "cube",
+      "bit_mismatches": 448,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "PV_FAIL_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 512,
+      "block": 16,
+      "variant": "simt",
+      "bit_mismatches": null,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "SIMT_BUILD_UNSUPPORTED"
+    },
+    {
+      "elements": 512,
+      "block": 32,
+      "variant": "simd",
+      "bit_mismatches": 0,
+      "pv_pass": true,
+      "ca_cycles": null,
+      "status": "PV_PASS_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 512,
+      "block": 32,
+      "variant": "cube",
+      "bit_mismatches": 448,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "PV_FAIL_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 512,
+      "block": 32,
+      "variant": "simt",
+      "bit_mismatches": null,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "SIMT_BUILD_UNSUPPORTED"
+    },
+    {
+      "elements": 1024,
+      "block": 16,
+      "variant": "simd",
+      "bit_mismatches": 0,
+      "pv_pass": true,
+      "ca_cycles": null,
+      "status": "PV_PASS_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 1024,
+      "block": 16,
+      "variant": "cube",
+      "bit_mismatches": 896,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "PV_FAIL_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 1024,
+      "block": 16,
+      "variant": "simt",
+      "bit_mismatches": null,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "SIMT_BUILD_UNSUPPORTED"
+    },
+    {
+      "elements": 1024,
+      "block": 32,
+      "variant": "simd",
+      "bit_mismatches": 0,
+      "pv_pass": true,
+      "ca_cycles": null,
+      "status": "PV_PASS_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 1024,
+      "block": 32,
+      "variant": "cube",
+      "bit_mismatches": 896,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "PV_FAIL_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 1024,
+      "block": 32,
+      "variant": "simt",
+      "bit_mismatches": null,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "SIMT_BUILD_UNSUPPORTED"
+    },
+    {
+      "elements": 2048,
+      "block": 16,
+      "variant": "simd",
+      "bit_mismatches": 0,
+      "pv_pass": true,
+      "ca_cycles": null,
+      "status": "PV_PASS_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 2048,
+      "block": 16,
+      "variant": "cube",
+      "bit_mismatches": 1792,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "PV_FAIL_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 2048,
+      "block": 16,
+      "variant": "simt",
+      "bit_mismatches": null,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "SIMT_BUILD_UNSUPPORTED"
+    },
+    {
+      "elements": 2048,
+      "block": 32,
+      "variant": "simd",
+      "bit_mismatches": 0,
+      "pv_pass": true,
+      "ca_cycles": null,
+      "status": "PV_PASS_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 2048,
+      "block": 32,
+      "variant": "cube",
+      "bit_mismatches": 1792,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "PV_FAIL_CA_UNSUPPORTED"
+    },
+    {
+      "elements": 2048,
+      "block": 32,
+      "variant": "simt",
+      "bit_mismatches": null,
+      "pv_pass": false,
+      "ca_cycles": null,
+      "status": "SIMT_BUILD_UNSUPPORTED"
+    }
+  ],
+  "comparative_3510": [
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 512,
+      "block": 16,
+      "variant": "simd",
+      "cycles": 7314,
+      "cycles_per_output": 14.28515625,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIV0_SIMD": 0.2033,
+        "AIV0_SCALAR": 0.6343,
+        "AIV0_MTE2": 0.1023,
+        "AIV0_MTE3": 0.042
+      },
+      "report": "reports/dav-3510_e2m1_b16_e512_simd_ca",
+      "wall_seconds": 40,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 512,
+      "block": 16,
+      "variant": "cube",
+      "cycles": 6308,
+      "cycles_per_output": 12.3203125,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIC_SCALAR": 0.3164,
+        "AIC_CUBE": 0.0222,
+        "AIC_MTE1": 0.0105,
+        "AIC_MTE2": 0.1034,
+        "AIC_FIXP": 0.0788,
+        "AIV0_SIMD": 0.1252,
+        "AIV0_SCALAR": 0.6891,
+        "AIV0_MTE2": 0.1254,
+        "AIV0_MTE3": 0.0755
+      },
+      "report": "reports/dav-3510_e2m1_b16_e512_cube_ca",
+      "wall_seconds": 33,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 512,
+      "block": 16,
+      "variant": "simt",
+      "cycles": 3607,
+      "cycles_per_output": 7.044921875,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIV0_SCALAR": 0.4633,
+        "AIV0_MTE2": 0.0014,
+        "AIV0_MTE3": 0.14,
+        "AIV0_SIMT": 0.2709
+      },
+      "report": "reports/dav-3510_e2m1_b16_e512_simt_ca",
+      "wall_seconds": 34,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 512,
+      "block": 32,
+      "variant": "simd",
+      "status": "NO_VALID_COMPLETED_CA_REPORT",
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 512,
+      "block": 32,
+      "variant": "cube",
+      "cycles": 6240,
+      "cycles_per_output": 12.1875,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIC_SCALAR": 0.3133,
+        "AIC_CUBE": 0.0224,
+        "AIC_MTE1": 0.0106,
+        "AIC_MTE2": 0.124,
+        "AIC_FIXP": 0.0798,
+        "AIV0_SIMD": 0.1266,
+        "AIV0_SCALAR": 0.7059,
+        "AIV0_MTE2": 0.1261,
+        "AIV0_MTE3": 0.0753
+      },
+      "report": "reports/dav-3510_e2m1_b32_e512_cube_ca",
+      "wall_seconds": 35,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 512,
+      "block": 32,
+      "variant": "simt",
+      "cycles": 3613,
+      "cycles_per_output": 7.056640625,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIV0_SCALAR": 0.4614,
+        "AIV0_MTE2": 0.0014,
+        "AIV0_MTE3": 0.1403,
+        "AIV0_SIMT": 0.2732
+      },
+      "report": "reports/dav-3510_e2m1_b32_e512_simt_ca",
+      "wall_seconds": 27,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 1024,
+      "block": 16,
+      "variant": "simd",
+      "cycles": 10193,
+      "cycles_per_output": 9.9541015625,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIV0_SIMD": 0.2416,
+        "AIV0_SCALAR": 0.5753,
+        "AIV0_MTE2": 0.0722,
+        "AIV0_MTE3": 0.0336
+      },
+      "report": "reports/dav-3510_e2m1_b16_e1024_simd_ca",
+      "wall_seconds": 42,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 1024,
+      "block": 16,
+      "variant": "cube",
+      "status": "NO_VALID_COMPLETED_CA_REPORT",
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 1024,
+      "block": 16,
+      "variant": "simt",
+      "cycles": 3981,
+      "cycles_per_output": 3.8876953125,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIV0_SCALAR": 0.4215,
+        "AIV0_MTE2": 0.0013,
+        "AIV0_MTE3": 0.1354,
+        "AIV0_SIMT": 0.3321
+      },
+      "report": "reports/dav-3510_e2m1_b16_e1024_simt_ca",
+      "wall_seconds": 29,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 1024,
+      "block": 32,
+      "variant": "simd",
+      "cycles": 7722,
+      "cycles_per_output": 7.541015625,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIV0_SIMD": 0.2359,
+        "AIV0_SCALAR": 0.5457,
+        "AIV0_MTE2": 0.0944,
+        "AIV0_MTE3": 0.0453
+      },
+      "report": "reports/dav-3510_e2m1_b32_e1024_simd_ca",
+      "wall_seconds": 36,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 1024,
+      "block": 32,
+      "variant": "cube",
+      "cycles": 7982,
+      "cycles_per_output": 7.794921875,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIC_SCALAR": 0.263,
+        "AIC_CUBE": 0.0351,
+        "AIC_MTE1": 0.0165,
+        "AIC_MTE2": 0.1827,
+        "AIC_FIXP": 0.1116,
+        "AIV0_SIMD": 0.1947,
+        "AIV0_SCALAR": 0.736,
+        "AIV0_MTE2": 0.1612,
+        "AIV0_MTE3": 0.1173
+      },
+      "report": "reports/dav-3510_e2m1_b32_e1024_cube_ca",
+      "wall_seconds": 37,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 1024,
+      "block": 32,
+      "variant": "simt",
+      "cycles": 4006,
+      "cycles_per_output": 3.912109375,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIV0_SCALAR": 0.4211,
+        "AIV0_MTE2": 0.0012,
+        "AIV0_MTE3": 0.1328,
+        "AIV0_SIMT": 0.3355
+      },
+      "report": "reports/dav-3510_e2m1_b32_e1024_simt_ca",
+      "wall_seconds": 29,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 2048,
+      "block": 16,
+      "variant": "simd",
+      "status": "NO_VALID_COMPLETED_CA_REPORT",
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 2048,
+      "block": 16,
+      "variant": "cube",
+      "cycles": 15600,
+      "cycles_per_output": 7.6171875,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIC_SCALAR": 0.1413,
+        "AIC_CUBE": 0.036,
+        "AIC_MTE1": 0.0169,
+        "AIC_MTE2": 0.25,
+        "AIC_FIXP": 0.1219,
+        "AIV0_SIMD": 0.2786,
+        "AIV0_SCALAR": 0.5335,
+        "AIV0_MTE2": 0.0516,
+        "AIV0_MTE3": 0.0231
+      },
+      "report": "reports/dav-3510_e2m1_b16_e2048_cube_ca",
+      "wall_seconds": 54,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 2048,
+      "block": 16,
+      "variant": "simt",
+      "cycles": 4730,
+      "cycles_per_output": 2.3095703125,
+      "bit_mismatches": 0,
+      "pipeline_utilization": {
+        "AIV0_SCALAR": 0.386,
+        "AIV0_MTE2": 0.0011,
+        "AIV0_MTE3": 0.1129,
+        "AIV0_SIMT": 0.4076
+      },
+      "report": "reports/dav-3510_e2m1_b16_e2048_simt_ca",
+      "wall_seconds": 33,
+      "trace_broadcast_count": 0,
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 2048,
+      "block": 32,
+      "variant": "simd",
+      "status": "NO_VALID_COMPLETED_CA_REPORT",
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 2048,
+      "block": 32,
+      "variant": "cube",
+      "status": "NO_VALID_COMPLETED_CA_REPORT",
+      "pv_final_pass": false
+    },
+    {
+      "architecture": "dav-3510",
+      "soc": "Ascend950PR_9589",
+      "format": "E2M1",
+      "elements": 2048,
+      "block": 32,
+      "variant": "simt",
+      "status": "NO_VALID_COMPLETED_CA_REPORT",
+      "pv_final_pass": false
+    }
+  ],
+  "note": "Pipeline percentages overlap. PV Total tick is never treated as CA core cycles."
+}

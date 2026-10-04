@@ -1,0 +1,1442 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+build.sh
+host/main.cpp
+host/nvfp4_pack.h
+instr.bin
+nvfp4_dequant/nvfp4_dequant_aic.h
+nvfp4_dequant/nvfp4_dequant_aiv.h
+nvfp4_dequant/nvfp4_dequant_common.h
+nvfp4_dequant/nvfp4_dequant_main.cpp
+nvfp4_dequant/nvfp4_dequant_stages.h
+sim_out/npusim_20261002143339_nvfp4_host/record/.soc-version
+sim/emulate_pipeline.py
+stars_log0_0_task.dump
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="build.sh">
+#!/usr/bin/env bash
+# build.sh -- compile the NVFP4 dequant kernel (ccec/bisheng, dav-3510) and the
+# ACL host harness. Run inside WSL/Linux with CANN 9.x installed:
+#
+#   ./build.sh [project_root]
+#
+# Environment:
+#   ASCEND_HOME_PATH  (sourced from ascend-toolkit/set_env.sh if unset)
+set -euo pipefail
+
+ROOT="${1:-$(cd "$(dirname "$0")" && pwd)}"
+OUT="$ROOT/build"
+mkdir -p "$OUT"
+
+if [ -z "${ASCEND_HOME_PATH:-}" ]; then
+    # shellcheck disable=SC1091
+    source /usr/local/Ascend/ascend-toolkit/set_env.sh
+fi
+echo "[build] ASCEND_HOME_PATH=$ASCEND_HOME_PATH"
+
+CCEC="$ASCEND_HOME_PATH/x86_64-linux/bin/ccec"
+LLD="$ASCEND_HOME_PATH/x86_64-linux/bin/ld.lld"
+if [ ! -x "$CCEC" ]; then CCEC="$ASCEND_HOME_PATH/tools/bisheng_compiler/bin/ccec"; fi
+if [ ! -x "$LLD" ]; then LLD="$ASCEND_HOME_PATH/tools/bisheng_compiler/bin/ld.lld"; fi
+echo "[build] ccec=$CCEC"
+echo "[build] lld=$LLD"
+
+KERNEL_CXXFLAGS=(
+    -std=c++17 -O2 -DNDEBUG
+    --asc-aicore-lang
+    --cce-aicore-only
+    --npu-arch=dav-3510
+    -I"$ROOT/nvfp4_dequant"
+    -I"$ASCEND_HOME_PATH/x86_64-linux/tikcpp/tikcfw"
+    -I"$ASCEND_HOME_PATH/include"
+)
+
+# ---- device object: single entry TU; Cube/Vector pipeline units are the
+# header-inline nvfp4_dequant_aic.h / nvfp4_dequant_aiv.h (arch35 MIX pattern)
+"$CCEC" "${KERNEL_CXXFLAGS[@]}" -c "$ROOT/nvfp4_dequant/nvfp4_dequant_main.cpp" -o "$OUT/nvfp4_dequant_main.o"
+
+"$LLD" -m aicorelinux -Ttext=0 \
+    "$OUT/nvfp4_dequant_main.o" \
+    -static -o "$OUT/nvfp4_dequant_kernel.o"
+echo "[build] kernel image: $OUT/nvfp4_dequant_kernel.o"
+
+# ---- host harness ----------------------------------------------------------
+g++ -std=c++17 -O2 -g \
+    -I"$ROOT/nvfp4_dequant" -I"$ROOT/host" -I"$ASCEND_HOME_PATH/include" \
+    "$ROOT/host/main.cpp" \
+    -o "$OUT/nvfp4_host" \
+    -L"$ASCEND_HOME_PATH/lib64" -lascendcl -Wl,-rpath,"$ASCEND_HOME_PATH/lib64"
+echo "[build] host harness: $OUT/nvfp4_host"
+echo "[build] done"
+</file>
+
+<file path="host/main.cpp">
+/**
+ * host/main.cpp  --  CAModel (npusim / dav_3510 / Ascend950PR) driver harness.
+ *
+ * Flow:
+ *   1. Generate random NVFP4 tiles (FP4 weights + E4M3 block scales), pack the
+ *      L0A/L0B fractals and scale blocks, and compute the golden FP16 output.
+ *   2. Load the ccec-built device object (nvfp4_dequant_kernel.o) via
+ *      aclrtCreateBinary / aclrtBinaryLoad / aclrtBinaryGetFunction.
+ *   3. Launch with aclrtLaunchKernel (1 block = 1 Cube + 1 Vector core,
+ *      KERNEL_TYPE_MIX_AIC_1_1), synchronize, copy back, verify bit-exactly.
+ *
+ * Usage: ./nvfp4_host [kernel.o] [numTiles] [iters] [seed]
+ */
+#include <chrono>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <random>
+#include <vector>
+
+#include "acl/acl.h"
+#include "nvfp4_pack.h"
+
+#define ACL_CALL(expr)                                                              \
+    do {                                                                            \
+        const aclError __err = (expr);                                              \
+        if (__err != ACL_SUCCESS) {                                                 \
+            fprintf(stderr, "ACL error %d at %s:%d (%s)\n", static_cast<int>(__err),\
+                    __FILE__, __LINE__, #expr);                                     \
+            return 1;                                                               \
+        }                                                                           \
+    } while (0)
+
+namespace {
+
+std::vector<uint8_t> ReadFile(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (f == nullptr) {
+        fprintf(stderr, "cannot open %s\n", path);
+        return {};
+    }
+    fseek(f, 0, SEEK_END);
+    const long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    std::vector<uint8_t> buf(static_cast<size_t>(sz));
+    if (sz > 0 && fread(buf.data(), 1, static_cast<size_t>(sz), f) != static_cast<size_t>(sz)) {
+        fclose(f);
+        return {};
+    }
+    fclose(f);
+    return buf;
+}
+
+struct HostBuffers {
+    std::vector<uint8_t> gmA;
+    std::vector<uint8_t> gmB;
+    std::vector<uint8_t> gmS;
+    std::vector<uint16_t> refOut;  // numTiles * 256
+    std::vector<TileInputs> tiles;
+};
+
+// Random E4M3 scale byte: positive, normal, non-NaN (skip 0x7F).
+uint8_t RandomScaleByte(std::mt19937 &rng)
+{
+    static std::uniform_int_distribution<int> expDist(1, 15);
+    static std::uniform_int_distribution<int> manDist(0, 7);
+    for (;;) {
+        const uint8_t sb = static_cast<uint8_t>((expDist(rng) << 3) | manDist(rng));
+        if (sb != 0x7F) {  // E4M3 NaN encoding
+            return sb;
+        }
+    }
+}
+
+uint8_t RandomWeightCode(std::mt19937 &rng)
+{
+    static std::uniform_int_distribution<int> dist(0, 15);
+    return static_cast<uint8_t>(dist(rng));
+}
+
+void GenerateInputs(uint32_t numTiles, uint32_t seed, HostBuffers &hb)
+{
+    std::mt19937 rng(seed);
+    const bool probeIdentity = getenv("NVFP4_PROBE_IDENTITY") != nullptr;
+    hb.gmA.resize(static_cast<size_t>(numTiles) * A_FRACTAL_BYTES);
+    hb.gmB.resize(static_cast<size_t>(numTiles) * B_FRACTAL_BYTES);
+    hb.gmS.resize(static_cast<size_t>(numTiles) * SCALE_BYTES);
+    hb.refOut.resize(static_cast<size_t>(numTiles) * TILE_M * TILE_N);
+    hb.tiles.resize(numTiles);
+
+    for (uint32_t t = 0; t < numTiles; ++t) {
+        TileInputs &in = hb.tiles[t];
+        in.wCodes.assign(TILE_M, std::vector<uint8_t>(TILE_N));
+        in.scaleBytes.resize(TILE_M);
+        if (probeIdentity) {
+            // B = identity => C reveals the hardware's A-fractal interpretation.
+            for (uint32_t g = 0; g < TILE_M; ++g) {
+                for (uint32_t n = 0; n < TILE_N; ++n) {
+                    in.wCodes[g][n] = (g == n) ? 0x2 : 0x0;  // E1M2 code 1.0 / 0
+                }
+                in.scaleBytes[g] = 0x40;  // exp field 8 -> E=1, 4M=4 => A0=2,A1=2
+            }
+        } else {
+            for (uint32_t g = 0; g < TILE_M; ++g) {
+                in.scaleBytes[g] = RandomScaleByte(rng);
+                for (uint32_t n = 0; n < TILE_N; ++n) {
+                    in.wCodes[g][n] = RandomWeightCode(rng);
+                }
+            }
+        }
+
+        uint8_t a0[TILE_M];
+        uint8_t a1[TILE_M];
+        DecomposeScales(in.scaleBytes, a0, a1);
+        if (probeIdentity) {
+            // Overwrite A codes with a positional probe pattern: nibble (m,k)
+            // carries code (m*16+k) & 0xF, packed in our assumed layout.
+            for (uint32_t m = 0; m < TILE_M; ++m) {
+                a0[m] = static_cast<uint8_t>((m * 16 + m) & 0xF);
+                a1[m] = static_cast<uint8_t>((m * 16 + 16 + m) & 0xF);
+            }
+        }
+
+        auto *aFr = reinterpret_cast<uint8_t (*)[A_FRACTAL_BYTES]>(
+            hb.gmA.data() + static_cast<size_t>(t) * A_FRACTAL_BYTES);
+        PackAFractal(a0, a1, *aFr);
+
+        auto *bFr = reinterpret_cast<uint8_t (*)[B_FRACTAL_BYTES]>(
+            hb.gmB.data() + static_cast<size_t>(t) * B_FRACTAL_BYTES);
+        PackBFractal(in.wCodes, *bFr);
+
+        uint8_t *s = hb.gmS.data() + static_cast<size_t>(t) * SCALE_BYTES;
+        std::memset(s, 0, SCALE_BYTES);
+        std::memcpy(s, in.scaleBytes.data(), TILE_M);
+
+        uint16_t (*ref)[TILE_M][TILE_N] = reinterpret_cast<uint16_t (*)[TILE_M][TILE_N]>(
+            hb.refOut.data() + static_cast<size_t>(t) * TILE_M * TILE_N);
+        ReferenceDequant(in, *ref);
+    }
+}
+
+}  // namespace
+
+int main(int argc, char **argv)
+{
+    const char *kernelPath = (argc > 1) ? argv[1] : "nvfp4_dequant_kernel.o";
+    const uint32_t numTiles = (argc > 2) ? static_cast<uint32_t>(atoi(argv[2])) : 64;
+    const uint32_t iters = (argc > 3) ? static_cast<uint32_t>(atoi(argv[3])) : 3;
+    const uint32_t seed = (argc > 4) ? static_cast<uint32_t>(atoi(argv[4])) : 2026u;
+
+    printf("[host] kernel=%s tiles=%u iters=%u seed=%u\n", kernelPath, numTiles, iters, seed);
+
+    HostBuffers hb;
+    GenerateInputs(numTiles, seed, hb);
+
+    std::vector<uint8_t> kernelBin = ReadFile(kernelPath);
+    if (kernelBin.empty()) {
+        fprintf(stderr, "failed to read kernel object %s\n", kernelPath);
+        return 1;
+    }
+    printf("[host] kernel object: %zu bytes\n", kernelBin.size());
+
+    ACL_CALL(aclInit(nullptr));
+    ACL_CALL(aclrtSetDevice(0));
+    aclrtStream stream = nullptr;
+    ACL_CALL(aclrtCreateStream(&stream));
+
+    // ---- device allocations -------------------------------------------------
+    const size_t bytesA = static_cast<size_t>(numTiles) * A_FRACTAL_BYTES;
+    const size_t bytesB = static_cast<size_t>(numTiles) * B_FRACTAL_BYTES;
+    const size_t bytesS = static_cast<size_t>(numTiles) * SCALE_BYTES;
+    const size_t bytesC = static_cast<size_t>(numTiles) * C_F32_BYTES;
+    const size_t bytesOut = static_cast<size_t>(numTiles) * OUT_F16_BYTES;
+
+    void *devA = nullptr;
+    void *devB = nullptr;
+    void *devS = nullptr;
+    void *devC = nullptr;
+    void *devOut = nullptr;
+    void *devTiling = nullptr;
+    ACL_CALL(aclrtMalloc(&devA, bytesA, ACL_MEM_MALLOC_HUGE_FIRST));
+    ACL_CALL(aclrtMalloc(&devB, bytesB, ACL_MEM_MALLOC_HUGE_FIRST));
+    ACL_CALL(aclrtMalloc(&devS, bytesS, ACL_MEM_MALLOC_HUGE_FIRST));
+    ACL_CALL(aclrtMalloc(&devC, bytesC, ACL_MEM_MALLOC_HUGE_FIRST));
+    ACL_CALL(aclrtMalloc(&devOut, bytesOut, ACL_MEM_MALLOC_HUGE_FIRST));
+    ACL_CALL(aclrtMalloc(&devTiling, 64, ACL_MEM_MALLOC_HUGE_FIRST));
+
+    ACL_CALL(aclrtMemcpy(devA, bytesA, hb.gmA.data(), bytesA, ACL_MEMCPY_HOST_TO_DEVICE));
+    ACL_CALL(aclrtMemcpy(devB, bytesB, hb.gmB.data(), bytesB, ACL_MEMCPY_HOST_TO_DEVICE));
+    ACL_CALL(aclrtMemcpy(devS, bytesS, hb.gmS.data(), bytesS, ACL_MEMCPY_HOST_TO_DEVICE));
+
+    Nvfp4TilingData tiling;
+    tiling.numTiles = numTiles;
+    tiling.reserved0 = 0;
+    ACL_CALL(aclrtMemcpy(devTiling, sizeof(tiling), &tiling, sizeof(tiling), ACL_MEMCPY_HOST_TO_DEVICE));
+
+    // ---- kernel binary load -------------------------------------------------
+    aclrtBinary binary = aclrtCreateBinary(kernelBin.data(), kernelBin.size());
+    if (binary == nullptr) {
+        fprintf(stderr, "aclrtCreateBinary failed\n");
+        return 1;
+    }
+    aclrtBinHandle binHandle = nullptr;
+    ACL_CALL(aclrtBinaryLoad(binary, &binHandle));
+    aclrtFuncHandle func = nullptr;
+    ACL_CALL(aclrtBinaryGetFunction(binHandle, "nvfp4_dequant", &func));
+    printf("[host] kernel loaded: nvfp4_dequant\n");
+
+    // ---- launch: args = (a, b, s, c, out, workspace, tiling) -----------------
+    // NOTE: the CAModel runtime forwards argsData to the device address window
+    // verbatim, so the args block must live in device memory.
+    struct KernelArgs {
+        void *gmA;
+        void *gmB;
+        void *gmS;
+        void *gmC;
+        void *gmOut;
+        void *workspace;
+        void *tiling;
+    } args;
+    args.gmA = devA;
+    args.gmB = devB;
+    args.gmS = devS;
+    args.gmC = devC;
+    args.gmOut = devOut;
+    args.workspace = nullptr;
+    args.tiling = devTiling;
+
+    void *devArgs = nullptr;
+    ACL_CALL(aclrtMalloc(&devArgs, sizeof(args), ACL_MEM_MALLOC_HUGE_FIRST));
+    ACL_CALL(aclrtMemcpy(devArgs, sizeof(args), &args, sizeof(args), ACL_MEMCPY_HOST_TO_DEVICE));
+
+    for (uint32_t it = 0; it < iters; ++it) {
+        ACL_CALL(aclrtMemset(devOut, bytesOut, 0, bytesOut));
+        const auto t0 = std::chrono::steady_clock::now();
+        ACL_CALL(aclrtLaunchKernel(func, 1, devArgs, sizeof(args), stream));
+        ACL_CALL(aclrtSynchronizeStream(stream));
+        const auto t1 = std::chrono::steady_clock::now();
+        const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        printf("[host] iter %u: launch+sync wall %.3f ms (simulator wall time, NOT cycles)\n", it, ms);
+    }
+
+    // ---- verify --------------------------------------------------------------
+    std::vector<uint16_t> got(static_cast<size_t>(numTiles) * TILE_M * TILE_N);
+    ACL_CALL(aclrtMemcpy(got.data(), bytesOut, devOut, bytesOut, ACL_MEMCPY_DEVICE_TO_HOST));
+
+    // Layout probe: dump the fp32 Cube staging tile 0 (see docs/cycle_model.md).
+    if (getenv("NVFP4_DUMP_C") != nullptr) {
+        std::vector<float> c32(static_cast<size_t>(numTiles) * TILE_M * TILE_N);
+        ACL_CALL(aclrtMemcpy(c32.data(), bytesC, devC, bytesC, ACL_MEMCPY_DEVICE_TO_HOST));
+        printf("[probe] gmC tile 0 (fp32, hardware mad_mx interpretation of the fractals):\n");
+        for (uint32_t g = 0; g < TILE_M; ++g) {
+            printf("  m%02u:", g);
+            for (uint32_t n = 0; n < TILE_N; ++n) {
+                printf(" %10.4f", c32[g * TILE_N + n]);
+            }
+            printf("\n");
+        }
+        printf("[probe] gmA tile 0 bytes:");
+        for (uint32_t i = 0; i < 64; ++i) {
+            printf(" %02x", hb.gmA[i]);
+        }
+        printf(" ...\n[probe] gmB tile 0 bytes:");
+        for (uint32_t i = 0; i < 64; ++i) {
+            printf(" %02x", hb.gmB[i]);
+        }
+        printf(" ...\n");
+    }
+
+    size_t mismatches = 0;
+    size_t zeros = 0;
+    double maxRelDiff = 0.0;
+    for (size_t i = 0; i < got.size(); ++i) {
+        const uint16_t r = hb.refOut[i];
+        const uint16_t g = got[i];
+        if (r == g) {
+            if ((r & 0x7FFF) == 0) {
+                ++zeros;
+            }
+            continue;
+        }
+        // -0 == +0 compare (kernel zero-guard canonicalizes -0 to +0)
+        const float rf = Fp16BitsToFloatForCmp(r);
+        const float gf = Fp16BitsToFloatForCmp(g);
+        if (rf == gf && rf == 0.0f) {
+            continue;
+        }
+        if (mismatches < 8) {
+            fprintf(stderr, "  mismatch idx=%zu tile=%zu elem=%zu ref=0x%04x got=0x%04x (ref=%g got=%g)\n",
+                    i, i / (TILE_M * TILE_N), i % (TILE_M * TILE_N), r, g, rf, gf);
+        }
+        ++mismatches;
+        const float denom = (rf != 0.0f) ? fabsf(rf) : 1.0f;
+        const double rel = fabsf(gf - rf) / denom;
+        if (rel > maxRelDiff) {
+            maxRelDiff = rel;
+        }
+    }
+
+    const size_t total = got.size();
+    printf("[host] elements=%zu exact=%zu zero=%zu MISMATCH=%zu (%.4f%%)\n", total,
+           total - mismatches, zeros, mismatches, 100.0 * static_cast<double>(mismatches) /
+                                                  static_cast<double>(total));
+    printf("[host] RESULT: %s\n", mismatches == 0 ? "PASS (bit-exact)" : "FAIL");
+
+    (void)aclrtBinaryUnLoad(binHandle);
+    (void)aclrtDestroyBinary(binary);  // best-effort cleanup
+    ACL_CALL(aclrtFree(devArgs));
+    ACL_CALL(aclrtFree(devA));
+    ACL_CALL(aclrtFree(devB));
+    ACL_CALL(aclrtFree(devS));
+    ACL_CALL(aclrtFree(devC));
+    ACL_CALL(aclrtFree(devOut));
+    ACL_CALL(aclrtFree(devTiling));
+    ACL_CALL(aclrtDestroyStream(stream));
+    ACL_CALL(aclrtResetDevice(0));
+    ACL_CALL(aclFinalize());
+    return mismatches == 0 ? 0 : 2;
+}
+</file>
+
+<file path="host/nvfp4_pack.h">
+/**
+ * nvfp4_pack.h  --  host-side NVFP4 packing + golden reference dequantizer.
+ *
+ * Mirrors exactly the layouts consumed by the kernel (nvfp4_dequant_common.h):
+ *
+ *  PackAFractal : 16x32 fp4 nibbles, row g = scale group; A[g][g] = A0_g
+ *                 (K-half 0), A[g][16+g] = A1_g (K-half 1). All other
+ *                 nibbles are zero. 256 B per tile.
+ *  PackBFractal : 32x16 fp4 nibbles stored n-outer (row n = 32 K nibbles):
+ *                 B[k][n] = w[k mod 16][n]  (weight rows replicated [W;W]).
+ *                 256 B per tile.
+ *  PackScales   : 16 E4M3 scale bytes + 16 B zero pad (32 B MTE block).
+ *
+ * Nibble order inside a byte: low nibble = even k, high nibble = odd k.
+ *
+ * Weight format is E1M2 by default to match the target's mad_mx SupportType
+ * pairing (fp4x2_e2m1_t x fp4x2_e1m2_t -> float); set NVFP4_WEIGHTS_E2M1 to
+ * pack standard-NVFP4 (OCP MX E2M1) weight grids instead -- the decomposition
+ * and the kernel are bit-identical for both.
+ */
+#ifndef NVFP4_PACK_H
+#define NVFP4_PACK_H
+
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <vector>
+
+#include "nvfp4_dequant_common.h"
+
+// ---------------------------------------------------------------- FP4 decode
+static inline float Fp4E1M2Value(uint8_t code)
+{
+    const uint8_t sign = (code >> 3) & 0x1;
+    const uint8_t e = (code >> 2) & 0x1;
+    const uint8_t m = code & 0x3;
+    float v = (e == 0) ? 0.25f * static_cast<float>(m)          // denorm: 0..0.75
+                       : (1.0f + 0.25f * static_cast<float>(m)); // normal: 1..1.75
+    return sign ? -v : v;
+}
+
+static inline float Fp4E2M1Value(uint8_t code)
+{
+    const uint8_t sign = (code >> 3) & 0x1;
+    const uint8_t e = (code >> 1) & 0x3;
+    const uint8_t m = code & 0x1;
+    float v = (e == 0) ? 0.5f * static_cast<float>(m)
+                       : std::ldexp(1.0f + 0.5f * static_cast<float>(m), static_cast<int>(e) - 1);
+    return sign ? -v : v;
+}
+
+static inline float Fp4WeightValue(uint8_t code)
+{
+#if defined(NVFP4_WEIGHTS_E2M1)
+    return Fp4E2M1Value(code);
+#else
+    return Fp4E1M2Value(code);
+#endif
+}
+
+// --------------------------------------------------------------- E4M3 decode
+// Positive, normal scales only (denorm/NaN/0 excluded by generation).
+static inline float E4M3Value(uint8_t scaleByte)
+{
+    const uint8_t e = E4M3ExpField(scaleByte);
+    const uint8_t m = scaleByte & 0x7;
+    return std::ldexp(1.0f + static_cast<float>(m) / 8.0f, static_cast<int>(e) - 7);
+}
+
+// ------------------------------------------------------------ fp16 bit packer
+static inline uint16_t Fp16BitsFromFloat(float v)
+{
+    if (v == 0.0f) {
+        return 0x0000;  // +0 / -0 preserved by sign check below
+    }
+    const uint32_t sign = (std::signbit(v) ? 1U : 0U) << 15;
+    const float a = std::fabs(v);
+    int e = 0;
+    float frac = std::frexp(a, &e);  // frac in [0.5, 1), a = frac * 2^e
+    // fp16 normal: a = 1.f * 2^(E - 15); all values here are normal.
+    const int E = e + 14;
+    const uint32_t mantissa = static_cast<uint32_t>((frac * 2.0f - 1.0f) * 1024.0f + 0.5f);
+    return static_cast<uint16_t>(sign | (static_cast<uint32_t>(E) << 10) |
+                                 (mantissa & 0x3FF));
+}
+
+// fp16 bits -> float (for -0 == +0 tolerant comparison only).
+static inline float Fp16BitsToFloatForCmp(uint16_t bits)
+{
+    const uint32_t sign = static_cast<uint32_t>((bits >> 15) & 0x1);
+    const uint32_t e = static_cast<uint32_t>((bits >> 10) & 0x1F);
+    const uint32_t m = static_cast<uint32_t>(bits & 0x3FF);
+    float v;
+    if (e == 0) {
+        v = std::ldexp(static_cast<float>(m), -24);  // denormal
+    } else {
+        v = std::ldexp(1.0f + static_cast<float>(m) / 1024.0f, static_cast<int>(e) - 15);
+    }
+    return sign ? -v : v;
+}
+
+// ------------------------------------------------------------------- packers
+static inline void PutNibble(uint8_t *bytes, uint32_t nibbleIdx, uint8_t code)
+{
+    uint8_t &b = bytes[nibbleIdx >> 1];
+    if ((nibbleIdx & 1U) == 0U) {
+        b = static_cast<uint8_t>((b & 0xF0) | (code & 0x0F));
+    } else {
+        b = static_cast<uint8_t>((b & 0x0F) | ((code & 0x0F) << 4));
+    }
+}
+
+struct TileInputs {
+    std::vector<uint8_t> aCodes[TILE_M];  // per group: {A0, A1} E2M1 codes
+    std::vector<std::vector<uint8_t>> wCodes;  // [group][weight] fp4 codes
+    std::vector<uint8_t> scaleBytes;           // 16 E4M3 bytes
+};
+
+// Decompose the tile's E4M3 scales into (A0, A1) E2M1 codes.
+static inline void DecomposeScales(const std::vector<uint8_t> &scaleBytes,
+                                   uint8_t (&a0Codes)[TILE_M], uint8_t (&a1Codes)[TILE_M])
+{
+    for (uint32_t g = 0; g < TILE_M; ++g) {
+        const uint8_t sb = scaleBytes[g];
+        const uint8_t m = sb & 0x7;
+        const Fp4ScalePair pair = K4M_DECOMP_LUT[m];
+        a0Codes[g] = pair.a0;
+        a1Codes[g] = pair.a1;
+    }
+}
+
+static inline void PackAFractal(const uint8_t (&a0Codes)[TILE_M], const uint8_t (&a1Codes)[TILE_M],
+                                uint8_t (&out)[A_FRACTAL_BYTES])
+{
+    std::memset(out, 0, A_FRACTAL_BYTES);
+    for (uint32_t g = 0; g < TILE_M; ++g) {
+        // row g spans bytes [16g, 16g+16): nibble k = g (K-half 0) and 16+g (K-half 1)
+        PutNibble(out + static_cast<uint32_t>(TILE_K) / 2 * g, g, a0Codes[g]);
+        PutNibble(out + static_cast<uint32_t>(TILE_K) / 2 * g, TILE_K / 2 + g, a1Codes[g]);
+    }
+}
+
+static inline void PackBFractal(const std::vector<std::vector<uint8_t>> &wCodes,
+                                uint8_t (&out)[B_FRACTAL_BYTES])
+{
+    std::memset(out, 0, B_FRACTAL_BYTES);
+    for (uint32_t n = 0; n < TILE_N; ++n) {
+        uint8_t *row = out + static_cast<uint32_t>(TILE_K) / 2 * n;  // 16 B per n row
+        for (uint32_t k = 0; k < TILE_K; ++k) {
+            PutNibble(row, k, wCodes[k % TILE_M][n]);  // [W;W] K replication
+        }
+    }
+}
+
+// Golden reference: out16[g][n] = fp16(w_gn * s_g), bit-exact.
+static inline void ReferenceDequant(const TileInputs &in, uint16_t (&out16)[TILE_M][TILE_N])
+{
+    for (uint32_t g = 0; g < TILE_M; ++g) {
+        const float s = E4M3Value(in.scaleBytes[g]);
+        for (uint32_t n = 0; n < TILE_N; ++n) {
+            out16[g][n] = Fp16BitsFromFloat(Fp4WeightValue(in.wCodes[g][n]) * s);
+        }
+    }
+}
+
+#endif  // NVFP4_PACK_H
+</file>
+
+<file path="nvfp4_dequant/nvfp4_dequant_aic.h">
+/**
+ * nvfp4_dequant_aic.h  --  Cube (AIC) pipeline implementation.
+ *
+ * Pipeline per 16-group tile t (slot p = t & 1), double buffered:
+ *
+ *   MTE2   GM -> L1 (A1/B1)   DataCopy with Nd2NzParams: the MTE2 engine
+ *                            performs the ND -> NZ fractal transform for the
+ *                            fp4 payloads (transferred as b8, K even).
+ *   MTE1   L1 -> L0A / L0B   LoadData (NZ->ZZ for A, NZ->ZN for B);
+ *                            HardEvent MTE2_MTE1 gates, MTE1_M gates Mmad.
+ *   M      MmadMx            hardware mad_mx: fp4x2_e2m1_t (A0/A1 scale
+ *                            terms) x fp4x2_e1m2_t (weights) -> fp32 L0C
+ *                            (CO1). C[g][n] = 4M_g * w_gn  (exact).
+ *   FIX    Fixpipe L0C -> GM fp32 staging, NZ2ND row-major [16][16]; the
+ *          producer signal CrossCoreSetFlag<SYNC_MODE2, PIPE_FIX>(prod_p)
+ *          fires when the fixpipe has drained.
+ *   XCORE  CrossCoreWaitFlag(ack_p) before overwriting gmC region t-2.
+ *
+ * GM A/B payloads are plain ND: gmA tile = [M=16][K=32] fp4 (row m carries
+ * A0_m at k=m, A1_m at k=16+m); gmB tile = [N=16][K=32] fp4 with
+ * B[k][n] = w[k mod 16][n] (weight rows replicated along K, prepared by the
+ * host). Steady-state overlap: MTE2[t+1] || MTE1[t] || M[t-1] || FIX[t-1].
+ */
+#ifndef NVFP4_DEQUANT_AIC_H
+#define NVFP4_DEQUANT_AIC_H
+
+#include "nvfp4_dequant_stages.h"
+
+namespace AscendC {
+
+class Nvfp4CubeStage {
+public:
+    __aicore__ inline void Init(GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmTiling, TPipe *pipe)
+    {
+        pipe_ = pipe;
+        GlobalTensor<uint32_t> tilingGm;
+        tilingGm.SetGlobalBuffer((__gm__ uint32_t *)gmTiling, 8);
+        numTiles_ = tilingGm.GetValue(0);
+
+        gmA_.SetGlobalBuffer((__gm__ uint8_t *)gmA, static_cast<uint64_t>(numTiles_) * A_FRACTAL_BYTES);
+        gmB_.SetGlobalBuffer((__gm__ uint8_t *)gmB, static_cast<uint64_t>(numTiles_) * B_FRACTAL_BYTES);
+        gmC_.SetGlobalBuffer((__gm__ float *)gmC,
+                             static_cast<uint64_t>(numTiles_) * (C_F32_BYTES / sizeof(float)));
+
+        // L1 staging (A1/B1) and L0A/L0B/L0C slots, ping-pong via offsets.
+        pipe_->InitBuffer(a1Buf_, NUM_BUFFERS * A_FRACTAL_BYTES);
+        pipe_->InitBuffer(b1Buf_, NUM_BUFFERS * B_FRACTAL_BYTES);
+        pipe_->InitBuffer(l0aBuf_, NUM_BUFFERS * A_FRACTAL_BYTES);
+        pipe_->InitBuffer(l0bBuf_, NUM_BUFFERS * B_FRACTAL_BYTES);
+        pipe_->InitBuffer(l0cBuf_, NUM_BUFFERS * C_F32_BYTES);
+    }
+
+    __aicore__ inline void Process()
+    {
+        for (uint32_t t = 0; t < numTiles_; ++t) {
+            LoadTile(t);      // MTE2 GM -> L1 with ND2NZ fractal transform
+            ComputeTile(t);   // MTE1 -> MmadMx -> Fixpipe -> handshake
+        }
+        // Drain the pipeline: leave no hardware event set at kernel exit (the
+        // framework epilogue reuses the event slots).
+        WaitFlag<HardEvent::M_MTE1>(0);
+        WaitFlag<HardEvent::M_MTE1>(1);
+        WaitFlag<HardEvent::FIX_M>(0);
+        WaitFlag<HardEvent::FIX_M>(1);
+    }
+
+private:
+    __aicore__ inline void LoadTile(uint32_t tileIdx)
+    {
+        const uint32_t p = tileIdx % NUM_BUFFERS;
+        SetFlag<HardEvent::S_MTE2>(static_cast<int32_t>(p));
+        WaitFlag<HardEvent::S_MTE2>(static_cast<int32_t>(p));
+
+        auto a1U8 = a1Buf_.GetWithOffset<uint8_t>(A_FRACTAL_BYTES, p * A_FRACTAL_BYTES);
+        auto b1U8 = b1Buf_.GetWithOffset<uint8_t>(B_FRACTAL_BYTES, p * B_FRACTAL_BYTES);
+
+        // GM ND [16 rows][K=32 fp4] -> L1 NZ; engine transfers fp4 as b8.
+        Nd2NzParams nzA;
+        nzA.ndNum = 1;
+        nzA.nValue = TILE_M;
+        nzA.dValue = TILE_K;
+        nzA.srcNdMatrixStride = 0;
+        nzA.srcDValue = TILE_K;                       // GM row stride (elements)
+        nzA.dstNzC0Stride = CUBE_BLK;                 // CeilCubeBlock(16) * 16 / 16
+        nzA.dstNzNStride = 1;
+        nzA.dstNzMatrixStride = 0;
+        DataCopy(a1U8, gmA_[static_cast<uint64_t>(tileIdx) * A_FRACTAL_BYTES], nzA);
+
+        Nd2NzParams nzB;
+        nzB.ndNum = 1;
+        nzB.nValue = TILE_N;
+        nzB.dValue = TILE_K;
+        nzB.srcNdMatrixStride = 0;
+        nzB.srcDValue = TILE_K;
+        nzB.dstNzC0Stride = CUBE_BLK;
+        nzB.dstNzNStride = 1;
+        nzB.dstNzMatrixStride = 0;
+        DataCopy(b1U8, gmB_[static_cast<uint64_t>(tileIdx) * B_FRACTAL_BYTES], nzB);
+
+        SetFlag<HardEvent::MTE2_MTE1>(static_cast<int32_t>(p));
+    }
+
+    __aicore__ inline void ComputeTile(uint32_t tileIdx)
+    {
+        const uint32_t p = tileIdx % NUM_BUFFERS;
+        WaitFlag<HardEvent::MTE2_MTE1>(static_cast<int32_t>(p));
+
+        auto a1 = a1Buf_.GetWithOffset<Nvfp4ScalePkt>(A_FRACTAL_BYTES, p * A_FRACTAL_BYTES);
+        auto b1 = b1Buf_.GetWithOffset<Nvfp4WeightPkt>(B_FRACTAL_BYTES, p * B_FRACTAL_BYTES);
+        auto l0aT = l0aBuf_.GetWithOffset<Nvfp4ScalePkt>(A_FRACTAL_BYTES, p * A_FRACTAL_BYTES);
+        auto l0bT = l0bBuf_.GetWithOffset<Nvfp4WeightPkt>(B_FRACTAL_BYTES, p * B_FRACTAL_BYTES);
+        auto l0cT = l0cBuf_.GetWithOffset<float>(C_F32_BYTES / sizeof(float), p * C_F32_BYTES);
+
+        // L0A/L0B slot p must be free: Mmad of tile t-2 drained.
+        if (tileIdx >= NUM_BUFFERS) {
+            WaitFlag<HardEvent::M_MTE1>(static_cast<int32_t>(p));
+        }
+
+        // L1 NZ -> L0A ZZ / L0B ZN (one 16x32 fp4 fractal unit each: mStep=1,
+        // kStep=1; fp4 payloads ride the 2d-v2 s4 load path).
+        LoadData2DParamsV2 loadA(0, 0, 1, 1, 0, 1, false, 0);
+        LoadData(l0aT, a1, loadA);
+        LoadData2DParamsV2 loadB(0, 0, 1, 1, 0, 1, false, 0);
+        LoadData(l0bT, b1, loadB);
+        PipeBarrier<PIPE_MTE1>();
+        SetFlag<HardEvent::MTE1_M>(static_cast<int32_t>(p));
+
+        WaitFlag<HardEvent::MTE1_M>(static_cast<int32_t>(p));
+
+        // L0C slot p must be free: Fixpipe of tile t-2 drained.
+        if (tileIdx >= NUM_BUFFERS) {
+            WaitFlag<HardEvent::FIX_M>(static_cast<int32_t>(p));
+        }
+
+        // ONE hardware mad_mx per tile: m=16 groups, n=16 weights, k=32 fp4
+        // elements (two 16-wide replicated K halves carrying A0 and A1).
+        MmadParams mmadParams;
+        mmadParams.m = TILE_M;
+        mmadParams.n = TILE_N;
+        mmadParams.k = TILE_K;
+        mmadParams.cmatrixInitVal = true;  // overwrite: this Mmad is the full K=32 sum
+        MmadMx(l0cT, l0aT, l0bT, mmadParams);
+        SetFlag<HardEvent::M_FIX>(static_cast<int32_t>(p));   // L0C[p] holds C
+        SetFlag<HardEvent::M_MTE1>(static_cast<int32_t>(p));  // L0A/B[p] reusable
+
+        // Issue the Fixpipe only after the Mmad has fully landed in L0C.
+        WaitFlag<HardEvent::M_FIX>(static_cast<int32_t>(p));
+
+        // Vector core must be done reading gmC region (t-2) before overwrite.
+        if (tileIdx >= NUM_BUFFERS) {
+            CrossCoreWaitFlag(p == 0 ? EVT_V2C_ACK_EVEN : EVT_V2C_ACK_ODD);
+        }
+
+        // Fixpipe: L0C NZ -> GM ND row-major fp32 [16][16] (CFG_ROW_MAJOR
+        // selects the hardware NZ2ND conversion on 3510).
+        FixpipeParamsV220 fixParams;
+        fixParams.nSize = TILE_N;
+        fixParams.mSize = TILE_M;
+        fixParams.srcStride = 0;
+        fixParams.dstStride = TILE_N;  // GM row stride (elements)
+        fixParams.reluEn = false;
+        Fixpipe<float, float, CFG_ROW_MAJOR>(gmC_[static_cast<uint64_t>(tileIdx) * (C_F32_BYTES / sizeof(float))],
+                                             l0cT, fixParams);
+        SetFlag<HardEvent::FIX_M>(static_cast<int32_t>(p));  // L0C[p] reusable
+        // Producer signal: fires when the fixpipe (PIPE_FIX) has drained.
+        CrossCoreSetFlag<NVFP4_SYNC_MODE2, PIPE_FIX>(p == 0 ? EVT_C2V_PROD_EVEN : EVT_C2V_PROD_ODD);
+    }
+
+    static constexpr uint16_t CUBE_BLK = 16;
+
+    TPipe *pipe_ = nullptr;
+    uint32_t numTiles_ = 0;
+
+    TBuf<TPosition::A1> a1Buf_;   // 2 x A_FRACTAL_BYTES (L1 staging)
+    TBuf<TPosition::B1> b1Buf_;   // 2 x B_FRACTAL_BYTES (L1 staging)
+    TBuf<TPosition::A2> l0aBuf_;  // 2 x A_FRACTAL_BYTES (ping-pong via offset)
+    TBuf<TPosition::B2> l0bBuf_;  // 2 x B_FRACTAL_BYTES
+    TBuf<TPosition::CO1> l0cBuf_; // 2 x C_F32_BYTES (L0C accumulator slots)
+
+    GlobalTensor<uint8_t> gmA_;
+    GlobalTensor<uint8_t> gmB_;
+    GlobalTensor<float> gmC_;  // fp32 Cube result staging (GM handoff)
+};
+
+}  // namespace AscendC
+
+#endif  // NVFP4_DEQUANT_AIC_H
+</file>
+
+<file path="nvfp4_dequant/nvfp4_dequant_aiv.h">
+/**
+ * nvfp4_dequant_aiv.h  --  Vector (AIV) pipeline implementation.
+ *
+ * Per tile t (slot p = t & 1), double buffered:
+ *
+ *   XCORE  CrossCoreWaitFlag(prod_p)   fp32 Cube result of gmC region t visible
+ *   MTE2   GM -> UB                    fp32 C tile (1024B) + 16 E4M3 scale bytes
+ *   XCORE  CrossCoreSetFlag<SYNC_MODE2, PIPE_MTE2>(ack_p) -- fires once the
+ *          MTE2 reads have drained, releasing gmC region t to the Cube
+ *   V      Cast  fp32 -> fp16          (vector convert pipe, no multiply)
+ *   V      exponent correction, INTEGER pipe only:
+ *            bits16 = fp16_bits(C[g][n]) + (delta_e_eff(g) << 10)
+ *          with delta_e_eff(g) = E4M3_exp_field(s_g) - 9  (== E_g - 2),
+ *          built as 16 per-group Duplicate rows + one 256-lane Add,
+ *          zero-guarded by |bits| != 0 (w == 0 must stay exactly 0).
+ *   MTE3  UB -> GM                     fp16 [16][16] tile
+ *
+ * No vector FPU multiply anywhere on this path; the only arithmetic on the
+ * FP16 payload is the integer add on its bit pattern.
+ *
+ * Implementation note: stage code is header-inline (production arch35 MIX
+ * pattern); the AIV translation unit is nvfp4_dequant_aiv.cpp.
+ */
+#ifndef NVFP4_DEQUANT_AIV_H
+#define NVFP4_DEQUANT_AIV_H
+
+#include "nvfp4_dequant_stages.h"
+
+namespace AscendC {
+
+class Nvfp4VectorStage {
+public:
+    __aicore__ inline void Init(GM_ADDR gmS, GM_ADDR gmC, GM_ADDR gmOut, GM_ADDR gmTiling, TPipe *pipe)
+    {
+        pipe_ = pipe;
+        GlobalTensor<uint32_t> tilingGm;
+        tilingGm.SetGlobalBuffer((__gm__ uint32_t *)gmTiling, 8);
+        numTiles_ = tilingGm.GetValue(0);
+
+        gmS_.SetGlobalBuffer((__gm__ uint8_t *)gmS, static_cast<uint64_t>(numTiles_) * SCALE_BYTES);
+        gmC_.SetGlobalBuffer((__gm__ float *)gmC,
+                             static_cast<uint64_t>(numTiles_) * (C_F32_BYTES / sizeof(float)));
+        gmOut_.SetGlobalBuffer((__gm__ half *)gmOut,
+                               static_cast<uint64_t>(numTiles_) * (OUT_F16_BYTES / sizeof(half)));
+
+        pipe_->InitBuffer(queC_, NUM_BUFFERS, C_F32_BYTES);
+        pipe_->InitBuffer(queS_, NUM_BUFFERS, SCALE_BYTES);
+        pipe_->InitBuffer(queO_, NUM_BUFFERS, OUT_F16_BYTES);
+
+        pipe_->InitBuffer(scratchF16_, OUT_F16_BYTES);
+        pipe_->InitBuffer(scratchOff_, OUT_F16_BYTES);
+        pipe_->InitBuffer(scratchConstAbs_, OUT_F16_BYTES);
+        pipe_->InitBuffer(scratchConstZero_, OUT_F16_BYTES);
+        pipe_->InitBuffer(scratchConstOne_, OUT_F16_BYTES);
+        pipe_->InitBuffer(scratchAbsC_, OUT_F16_BYTES);
+        pipe_->InitBuffer(scratchMask_, OUT_F16_BYTES);
+        pipe_->InitBuffer(scratchSum_, OUT_F16_BYTES);
+
+        // Constant lane masks, built once on the vector pipe.
+        Duplicate(scratchConstAbs_.Get<int16_t>(), static_cast<int16_t>(0x7FFF), TILE_M * TILE_N);
+        Duplicate(scratchConstZero_.Get<int16_t>(), static_cast<int16_t>(0), TILE_M * TILE_N);
+        Duplicate(scratchConstOne_.Get<int16_t>(), static_cast<int16_t>(1), TILE_M * TILE_N);
+    }
+
+    __aicore__ inline void Process()
+    {
+        for (uint32_t t = 0; t < numTiles_; ++t) {
+            ConsumeTile(t);
+        }
+        // Drain outstanding cross-core acks (two ping-pong slots) so no event
+        // is left set at kernel exit.
+        CrossCoreWaitFlag(EVT_V2C_ACK_EVEN);
+        CrossCoreWaitFlag(EVT_V2C_ACK_ODD);
+    }
+
+private:
+    __aicore__ inline void ConsumeTile(uint32_t tileIdx)
+    {
+        const uint32_t p = tileIdx % NUM_BUFFERS;
+
+        // fp32 C tile: wait for the Cube's producer signal, then MTE2 GM -> UB.
+        auto cUb = queC_.AllocTensor<float>();
+        CrossCoreWaitFlag(p == 0 ? EVT_C2V_PROD_EVEN : EVT_C2V_PROD_ODD);
+        DataCopy(cUb, gmC_[static_cast<uint64_t>(tileIdx) * (C_F32_BYTES / sizeof(float))],
+                 TILE_M * TILE_N);
+        queC_.EnQue(cUb);
+
+        // Scale bytes are Cube-independent; prefetch alongside.
+        auto sUb = queS_.AllocTensor<uint8_t>();
+        DataCopy(sUb, gmS_[static_cast<uint64_t>(tileIdx) * SCALE_BYTES], SCALE_BYTES);
+        queS_.EnQue(sUb);
+
+        // Release gmC region t once both MTE2 reads have drained.
+        CrossCoreSetFlag<NVFP4_SYNC_MODE2, PIPE_MTE2>(p == 0 ? EVT_V2C_ACK_EVEN : EVT_V2C_ACK_ODD);
+
+        auto c32 = queC_.DeQue<float>();
+        auto s8 = queS_.DeQue<uint8_t>();
+
+        // ---- vector stage: fp32 -> fp16 bit pattern -> integer exponent add ----
+        auto h16 = scratchF16_.Get<half>();
+        Cast(h16, c32, RoundMode::CAST_NONE, TILE_M * TILE_N);
+
+        auto cI16 = h16.ReinterpretCast<int16_t>();
+
+        // Per-group exponent offsets from the raw E4M3 scale bytes (scalar
+        // loads + Duplicate fills keep this entirely off the FPU):
+        //   delta_e_eff = (exp_field - 7) - 2 = exp_field - 9, <<10 into the
+        //   fp16 exponent field.
+        for (uint32_t g = 0; g < TILE_M; ++g) {
+            const uint8_t scaleByte = s8.GetValue(g);
+            const int16_t expAdd = static_cast<int16_t>((((scaleByte >> 3) & 0xF) - 9) << 10);
+            Duplicate(scratchOff_.GetWithOffset<int16_t>(TILE_N, g * TILE_N * 2), expAdd, TILE_N);
+        }
+
+        // bits + (delta << 10): pure integer lanes.
+        auto sumI = scratchSum_.Get<int16_t>();
+        Add(sumI, cI16, scratchOff_.Get<int16_t>(), TILE_M * TILE_N);
+
+        // Zero guard: C == +/-0 must remain exactly zero (the exponent add
+        // would otherwise synthesize a denormal). Every nonzero C has |bits|
+        // >= 0x3800 (|C| >= 1), so Min(|bits|, 1) is an exact 0/1 mask with no
+        // compare op: mask = Min(|C|, 1); lanes = 0 - mask; out &= lanes.
+        auto absC = scratchAbsC_.Get<int16_t>();
+        And(absC, cI16, scratchConstAbs_.Get<int16_t>(), TILE_M * TILE_N);
+        auto mask01 = scratchMask_.Get<int16_t>();
+        Min(mask01, absC, scratchConstOne_.Get<int16_t>(), TILE_M * TILE_N);
+        // absC is dead past the Min; V-pipe ops run in issue order, so its
+        // buffer is safely reusable for the 0 -> 0xFFFF negation.
+        auto negM = scratchAbsC_.Get<int16_t>();
+        Sub(negM, scratchConstZero_.Get<int16_t>(), mask01, TILE_M * TILE_N);
+        And(sumI, sumI, negM, TILE_M * TILE_N);
+
+        // Store fp16 tile.
+        auto out = queO_.AllocTensor<half>();
+        DataCopy(out.ReinterpretCast<int16_t>(), sumI, TILE_M * TILE_N);
+        queO_.EnQue(out);
+        auto outV = queO_.DeQue<half>();
+        DataCopy(gmOut_[static_cast<uint64_t>(tileIdx) * (OUT_F16_BYTES / sizeof(half))], outV,
+                 TILE_M * TILE_N);
+        queO_.FreeTensor(outV);
+
+        queC_.FreeTensor(c32);
+        queS_.FreeTensor(s8);
+    }
+
+    TPipe *pipe_ = nullptr;
+    uint32_t numTiles_ = 0;
+
+    TQue<QuePosition::VECIN, 1> queC_;   // fp32 Cube result GM->UB (DB=2)
+    TQue<QuePosition::VECIN, 1> queS_;   // E4M3 scale bytes GM->UB (DB=2)
+    TQue<QuePosition::VECOUT, 1> queO_;  // fp16 result UB->GM (DB=2)
+
+    TBuf<TPosition::VECCALC> scratchF16_;       // Cast destination / int16 view
+    TBuf<TPosition::VECCALC> scratchOff_;       // per-group (delta<<10) offset tile
+    TBuf<TPosition::VECCALC> scratchConstAbs_;  // constant 0x7FFF lane mask
+    TBuf<TPosition::VECCALC> scratchConstZero_; // constant 0 lanes
+    TBuf<TPosition::VECCALC> scratchConstOne_;  // constant 1 lanes (zero guard)
+    TBuf<TPosition::VECCALC> scratchAbsC_;      // |bits| of C (result)
+    TBuf<TPosition::VECCALC> scratchMask_;      // zero-guard mask (result)
+    TBuf<TPosition::VECCALC> scratchSum_;       // bits + offset (result)
+
+    GlobalTensor<uint8_t> gmS_;
+    GlobalTensor<float> gmC_;
+    GlobalTensor<half> gmOut_;
+};
+
+}  // namespace AscendC
+
+#endif  // NVFP4_DEQUANT_AIV_H
+</file>
+
+<file path="nvfp4_dequant/nvfp4_dequant_common.h">
+/**
+ * nvfp4_dequant_common.h
+ *
+ * Shared constants, layouts and the E4M3->2xE2M1 scale decomposition LUT for the
+ * Cube-accelerated NVFP4 -> FP16 dequantization pipeline on Ascend 950PR
+ * (dav-c310, __NPU_ARCH__ 3510, CANN 9.x).
+ *
+ * ---------------------------------------------------------------------------
+ * Mathematical core
+ * ---------------------------------------------------------------------------
+ * An NVFP4 block carries 16 weights w (FP4) plus one FP8-E4M3 block scale s.
+ * With E4M3 bias 7:
+ *
+ *      s = 2^E * (1 + m/8),  E in [-6, 8],  m in [0,7]
+ *        = 2^(E-2) * 4M,     4M = 4 + m/2 in {4.0, 4.5, ..., 7.5}   (16 values)
+ *
+ * 4M is partitioned additively into two native E2M1 grid points:
+ *
+ *      4M = A0 + A1,  A0 in {2,3,4,6},  A1 in {0.5,1,1.5,2,3}
+ *
+ * (see k4mDecompLUT below; A0 restricted to {2,4,6} and A1 to {0.5..2} is a
+ *  sufficient monotone subcover of all 16 mantissas).
+ *
+ * Per weight:   s * w = 2^(E-2) * (A0*w + A1*w)
+ *
+ * (A0*w + A1*w) is a K=2 dot product -> computed by ONE fp4 `mad_mx` systolic
+ * tile with:
+ *      L0A (A-side, fp4x2_e2m1_t): row g = scale group g, A[g][g]     = A0_g
+ *                                                      A[g][16+g]  = A1_g
+ *      L0B (B-side, fp4x2_e1m2_t): B[k][n] = w[(k mod 16)][n]  (weight row
+ *                                   replication along K, [W;W] tiling)
+ *      C[g][n] (fp32, L0C)       = 4M_g * w_gn          (exact in fp32)
+ *
+ * The effective exponent shift applied POST-Cube is therefore
+ *
+ *      delta_e_eff = E - 2 = (E4M3_exp_field - 7) - 2 = exp_field - 9
+ *
+ * which the AIV stage folds into the FP16 bit pattern with a pure INTEGER add:
+ *
+ *      fp16_bits(out) = fp16_bits(C) + (delta_e_eff << 10)   [when C != 0]
+ *
+ * No vector FPU multiply is performed anywhere after the Cube.
+ *
+ * ---------------------------------------------------------------------------
+ * Tile / buffer geometry (one minimum 16x16 systolic tile, FP4 => K = 32)
+ * ---------------------------------------------------------------------------
+ *   gmA      : numTiles * A_FRACTAL_BYTES   L0A-fractal scale-term pairs
+ *   gmB      : numTiles * B_FRACTAL_BYTES   L0B-fractal k-replicated weights
+ *   gmS      : numTiles * SCALE_BYTES       16 E4M3 scale bytes + 16B pad
+ *   gmC      : numTiles * C_F32_BYTES       fp32 Cube accumulators (staging,
+ *                                            Fixpipe L0C->UB/GM handoff)
+ *   gmOut    : numTiles * OUT_F16_BYTES     fp16 dequantized weights [g][n]
+ */
+#ifndef NVFP4_DEQUANT_COMMON_H
+#define NVFP4_DEQUANT_COMMON_H
+
+#include <cstdint>
+
+// ---------------------------------------------------------------- tile shape
+static constexpr uint16_t NVFP4_BLK   = 16;  // NVFP4 block size (weights per scale)
+static constexpr uint16_t TILE_M      = 16;  // scale groups per tile (M dim)
+static constexpr uint16_t TILE_N      = 16;  // weights per group   (N dim)
+static constexpr uint16_t TILE_K      = 32;  // 2 x 16 replicated K (fp4 k-unit)
+static constexpr uint16_t NUM_BUFFERS = 2;   // double buffering depth
+
+// ------------------------------------------------------------- byte counts
+static constexpr uint16_t A_FRACTAL_BYTES = TILE_M * TILE_K / 2;  // 256
+static constexpr uint16_t B_FRACTAL_BYTES = TILE_K * TILE_N / 2;  // 256
+static constexpr uint16_t SCALE_BYTES     = 32;  // 16 E4M3 bytes padded to one 32B MTE block
+static constexpr uint16_t C_F32_BYTES     = TILE_M * TILE_N * 4;  // 1024
+static constexpr uint16_t OUT_F16_BYTES   = TILE_M * TILE_N * 2;  // 512
+
+// ------------------------------------------------------------ E2M1 encodings
+// OCP MX E2M1 (1S/2E/1M, bias 1): 0,0.5,1,1.5,2,3,4,6  -> codes 0x0..0x7
+enum Fp4E2M1Code : uint8_t {
+    FP4_E2M1_P0_0 = 0x0,
+    FP4_E2M1_P0_5 = 0x1,
+    FP4_E2M1_P1_0 = 0x2,
+    FP4_E2M1_P1_5 = 0x3,
+    FP4_E2M1_P2_0 = 0x4,
+    FP4_E2M1_P3_0 = 0x5,
+    FP4_E2M1_P4_0 = 0x6,
+    FP4_E2M1_P6_0 = 0x7,
+};
+
+/**
+ * 4M decomposition LUT, indexed by mantissa half-steps:
+ *   idx = 2*(4M) - 8  in [0,7]   <=>   4M = 4.0 + 0.5*idx
+ * Each entry: {A0 code, A1 code}, both E2M1 grid points, A0 + A1 == 4M.
+ */
+struct Fp4ScalePair {
+    uint8_t a0;
+    uint8_t a1;
+};
+
+static constexpr Fp4ScalePair K4M_DECOMP_LUT[8] = {
+    {FP4_E2M1_P2_0, FP4_E2M1_P2_0},  // 4.0 = 2.0 + 2.0
+    {FP4_E2M1_P4_0, FP4_E2M1_P0_5},  // 4.5 = 4.0 + 0.5
+    {FP4_E2M1_P4_0, FP4_E2M1_P1_0},  // 5.0 = 4.0 + 1.0
+    {FP4_E2M1_P4_0, FP4_E2M1_P1_5},  // 5.5 = 4.0 + 1.5
+    {FP4_E2M1_P4_0, FP4_E2M1_P2_0},  // 6.0 = 4.0 + 2.0
+    {FP4_E2M1_P6_0, FP4_E2M1_P0_5},  // 6.5 = 6.0 + 0.5
+    {FP4_E2M1_P6_0, FP4_E2M1_P1_0},  // 7.0 = 6.0 + 1.0
+    {FP4_E2M1_P6_0, FP4_E2M1_P1_5},  // 7.5 = 6.0 + 1.5
+};
+
+// E4M3 helper: unbiased exponent of a (positive, normal) E4M3 scale byte.
+static inline uint8_t E4M3ExpField(uint8_t scaleByte)
+{
+    return static_cast<uint8_t>((scaleByte >> 3) & 0xF);
+}
+
+// delta_e_eff = E - 2 = (exp_field - 7) - 2, folded as int16 fp16 exponent add.
+static inline int16_t DeltaEEffAsFp16ExpAdd(uint8_t scaleByte)
+{
+    int32_t delta = static_cast<int32_t>(E4M3ExpField(scaleByte)) - 9;
+    return static_cast<int16_t>(delta << 10);
+}
+
+// --------------------------------------------------------------- tiling data
+struct Nvfp4TilingData {
+    uint32_t numTiles;  // number of 16-group (16x16 weight) tiles to dequantize
+    uint32_t reserved0;
+};
+
+// Cross-core event ids for the AIC->AIV producer/consumer handshake
+// (ping-pong, 2 producers + 2 acks; ids chosen inside the 8-bit id space).
+enum Nvfp4EventId : uint16_t {
+    EVT_C2V_PROD_EVEN = 0,
+    EVT_C2V_PROD_ODD  = 1,
+    EVT_V2C_ACK_EVEN  = 2,
+    EVT_V2C_ACK_ODD   = 3,
+};
+
+#endif  // NVFP4_DEQUANT_COMMON_H
+</file>
+
+<file path="nvfp4_dequant/nvfp4_dequant_main.cpp">
+/**
+ * nvfp4_dequant_main.cpp  --  kernel entry point (single TU, MIX image).
+ *
+ * ccec compiles this entry into the per-core images `nvfp4_dequant_mix_aic`
+ * and `nvfp4_dequant_mix_aiv`; ASCEND_IS_AIC selects which pipeline runs on
+ * which image. The Cube pipeline lives in nvfp4_dequant_aic.h, the Vector
+ * pipeline in nvfp4_dequant_aiv.h (production arch35 MIX-kernel structure:
+ * per-stage implementation units are header-inline because core-type
+ * specialization is resolved at entry instantiation time).
+ *
+ * One block = one Cube core (AIC) + one Vector core (AIV):
+ *   KERNEL_TYPE_MIX_AIC_1_1.
+ *
+ * GM layout (see nvfp4_dequant_common.h):
+ *   gmA : numTiles * 256B  L0A fractal, packed (A0,A1) E2M1 scale terms
+ *   gmB : numTiles * 256B  L0B fractal, K-replicated E1M2 weights
+ *   gmS : numTiles * 32B   16 E4M3 scale bytes + pad
+ *   gmC : numTiles * 1024B fp32 Cube staging (AIC->AIV handoff)
+ *   gmOut : numTiles * 512B fp16 dequantized [16 groups][16 weights]
+ */
+#include "nvfp4_dequant_aic.h"
+#include "nvfp4_dequant_aiv.h"
+
+extern "C" __global__ __aicore__ void nvfp4_dequant(GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmS, GM_ADDR gmC,
+                                                    GM_ADDR gmOut, GM_ADDR workspace, GM_ADDR tilingGm)
+{
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_1);
+    if ASCEND_IS_AIC {
+        AscendC::TPipe pipe;
+        AscendC::Nvfp4CubeStage cube;
+        cube.Init(gmA, gmB, gmC, tilingGm, &pipe);
+        cube.Process();
+    }
+    if ASCEND_IS_AIV {
+        AscendC::TPipe pipe;
+        AscendC::Nvfp4VectorStage vec;
+        vec.Init(gmS, gmC, gmOut, tilingGm, &pipe);
+        vec.Process();
+    }
+}
+</file>
+
+<file path="nvfp4_dequant/nvfp4_dequant_stages.h">
+/**
+ * nvfp4_dequant_stages.h
+ *
+ * Translation-unit separation contract for the NVFP4 dequant kernel.
+ *
+ *   nvfp4_dequant_aic.cpp : Nvfp4CubeStage  - Cube pipeline (AIC core)
+ *       MTE2 GM->UB (double buffered TQue) -> MTE1 UB->L0A/L0B ->
+ *       MmadMx (hardware mad_mx, fp4x2_e2m1_t x fp4x2_e1m2_t -> fp32 L0C) ->
+ *       Fixpipe L0C -> GM fp32 staging; native HardEvents MTE1_M / M_MTE1 /
+ *       M_FIX / FIX_M; CrossCoreSetFlag<SYNC_MODE2, PIPE_FIX> producer signal.
+ *
+ *   nvfp4_dequant_aiv.cpp : Nvfp4VectorStage - Vector pipeline (AIV core)
+ *       CrossCoreWaitFlag -> MTE2 GM->UB -> Cast fp32->fp16 -> pure-integer
+ *       exponent correction (vadd on the fp16 bit pattern, delta_e_eff<<10)
+ *       -> zero guard -> MTE3 UB->GM fp16; CrossCoreSetFlag<SYNC_MODE2,
+ *       PIPE_MTE2> ack.
+ *
+ *   nvfp4_dequant_main.cpp : kernel entry, MIX_AIC_1_1 dispatch.
+ */
+#ifndef NVFP4_DEQUANT_STAGES_H
+#define NVFP4_DEQUANT_STAGES_H
+
+#include "kernel_operator.h"
+#include "nvfp4_dequant_common.h"
+
+namespace AscendC {
+
+// Cross-core flag mode used by production MIX kernels (add_lora et al.) for
+// cube<->vector event propagation; the flag fires when the specified pipe has
+// drained all previously issued operations.
+static constexpr uint64_t NVFP4_SYNC_MODE2 = 2;
+
+// L0A operand: decomposed E4M3 scale terms (A0/A1) as packed FP4 E2M1.
+using Nvfp4ScalePkt = fp4x2_e2m1_t;
+// L0B operand: NVFP4 weights as packed FP4 E1M2 (target SupportType pairing
+// Tuple<float, fp4x2_e2m1_t, fp4x2_e1m2_t> on dav-c310/3510).
+using Nvfp4WeightPkt = fp4x2_e1m2_t;
+
+}  // namespace AscendC
+
+#endif  // NVFP4_DEQUANT_STAGES_H
+</file>
+
+<file path="sim_out/npusim_20261002143339_nvfp4_host/record/.soc-version">
+{"schema_version": 1, "soc_version": "Ascend950"}
+</file>
+
+<file path="sim/emulate_pipeline.py">
+#!/usr/bin/env python3
+"""
+emulate_pipeline.py -- bit-exact CPU emulation of the NVFP4->FP16 Cube pipeline.
+
+Validates, independently of any Ascend toolchain:
+  1. The 4M = A0 + A1 E2M1 decomposition LUT covers all 16 E4M3 mantissas.
+  2. The L0A/L0B fractal byte layouts round-trip (packing <-> decode).
+  3. The K=32 replicated Mmad computes C[g][n] = 4M_g * w_gn exactly.
+  4. The AIV integer exponent add on the FP16 bit pattern (delta << 10) with
+     zero guard reproduces the golden w * s FP16 for every element.
+  5. Range safety: no overflow to inf, no denormal C, no fp16 exponent-field
+     overflow for the full E4M3/E1M2 (and E2M1) input domains.
+
+Run:  python sim/emulate_pipeline.py [--tiles 64] [--seed 1]
+Exit code 0 = PASS.
+"""
+import argparse
+import struct
+import sys
+
+NVFP4_BLK = 16
+TILE_M, TILE_N, TILE_K = 16, 16, 32
+
+# ---------------------------------------------------------------- fp4 decode
+def fp4_e2m1(code):
+    sign = (code >> 3) & 1
+    e = (code >> 1) & 3
+    m = code & 1
+    v = (m * 0.5) if e == 0 else (2.0 ** (e - 1)) * (1.0 + 0.5 * m)
+    return -v if sign else v
+
+def fp4_e1m2(code):
+    sign = (code >> 3) & 1
+    e = (code >> 2) & 1
+    m = code & 3
+    v = (m * 0.25) if e == 0 else 1.0 + 0.25 * m
+    return -v if sign else v
+
+FP4_E2M1_GRID = [fp4_e2m1(c) for c in range(16)]
+FP4_E1M2_GRID = [fp4_e1m2(c) for c in range(16)]
+
+# E2M1 encode (positive values)
+E2M1_CODE = {v: c for c, v in enumerate(FP4_E2M1_GRID[:8])}
+
+# ------------------------------------------------- decomposition LUT (mirror)
+LUT = [
+    (E2M1_CODE[2.0], E2M1_CODE[2.0]),  # 4.0
+    (E2M1_CODE[4.0], E2M1_CODE[0.5]),  # 4.5
+    (E2M1_CODE[4.0], E2M1_CODE[1.0]),  # 5.0
+    (E2M1_CODE[4.0], E2M1_CODE[1.5]),  # 5.5
+    (E2M1_CODE[4.0], E2M1_CODE[2.0]),  # 6.0
+    (E2M1_CODE[6.0], E2M1_CODE[0.5]),  # 6.5
+    (E2M1_CODE[6.0], E2M1_CODE[1.0]),  # 7.0
+    (E2M1_CODE[6.0], E2M1_CODE[1.5]),  # 7.5
+]
+
+def e4m3_value(sb):
+    e = (sb >> 3) & 0xF
+    m = sb & 7
+    if e == 0:
+        return (m / 8.0) * 2.0 ** -6  # denormal (excluded in generation, but decode anyway)
+    return (2.0 ** (e - 7)) * (1.0 + m / 8.0)
+
+def fp16_bits(v):
+    return struct.unpack("<H", struct.pack("<e", v))[0]
+
+def fp16_from_bits(bits):
+    return struct.unpack("<e", struct.pack("<H", bits & 0xFFFF))[0]
+
+def i16(x):
+    return ((x + 0x8000) & 0xFFFF) - 0x8000
+
+# ------------------------------------------------------------------- packing
+def put_nibble(buf, idx, code):
+    if idx % 2 == 0:
+        buf[idx // 2] = (buf[idx // 2] & 0xF0) | (code & 0xF)
+    else:
+        buf[idx // 2] = (buf[idx // 2] & 0x0F) | ((code & 0xF) << 4)
+
+def get_nibble(buf, idx):
+    return (buf[idx // 2] >> (4 * (idx % 2))) & 0xF
+
+def pack_a_fractal(a0, a1):
+    """L0A: row g (16B = 32 k-nibbles): A0_g at k=g, A1_g at k=16+g."""
+    out = bytearray(TILE_M * TILE_K // 2)
+    for g in range(TILE_M):
+        row_nib = g * TILE_K  # each row spans TILE_K nibbles (TILE_K/2 bytes)
+        put_nibble(out, row_nib + g, a0[g])
+        put_nibble(out, row_nib + TILE_K // 2 + g, a1[g])
+    return out
+
+def pack_b_fractal(w):
+    """L0B: n-outer rows; row n (16B): k=0..31 nibbles of B[k][n] = w[k%16][n]."""
+    out = bytearray(TILE_K * TILE_N // 2)
+    for n in range(TILE_N):
+        row_nib = n * TILE_K  # each row spans TILE_K nibbles (TILE_K/2 bytes)
+        for k in range(TILE_K):
+            put_nibble(out, row_nib + k, w[k % TILE_M][n])
+    return out
+
+# ---------------------------------------------------------------- emulation
+def emulate_tile(w_codes, scale_bytes, weight_fmt="e1m2"):
+    decode = fp4_e1m2 if weight_fmt == "e1m2" else fp4_e2m1
+    # decomposition
+    a0 = [0] * TILE_M
+    a1 = [0] * TILE_M
+    for g in range(TILE_M):
+        a0[g], a1[g] = LUT[scale_bytes[g] & 7]
+    a_fr = pack_a_fractal(a0, a1)
+    b_fr = pack_b_fractal(w_codes)
+
+    # Mmad emulation: C[g][n] = sum_k A[g][k] * B[k][n], decoded from the
+    # packed fractal bytes (validates the layouts, not just the math).
+    C = [[0.0] * TILE_N for _ in range(TILE_M)]
+    for g in range(TILE_M):
+        arow = a_fr[g * (TILE_K // 2):(g + 1) * (TILE_K // 2)]
+        for n in range(TILE_N):
+            brow = b_fr[n * (TILE_K // 2):(n + 1) * (TILE_K // 2)]
+            acc = 0.0
+            for k in range(TILE_K):
+                av = fp4_e2m1(get_nibble(arow, k))
+                bv = decode(get_nibble(brow, k))
+                acc += av * bv
+            C[g][n] = acc  # fp32 accumulation: all partials are exact in fp32
+    return C
+
+def aiv_stage(C, scale_bytes):
+    """Cast fp32->fp16, integer exponent add, zero guard. Returns bit matrix."""
+    out = [[0] * TILE_N for _ in range(TILE_M)]
+    for g in range(TILE_M):
+        delta = (((scale_bytes[g] >> 3) & 0xF) - 9) << 10
+        for n in range(TILE_N):
+            cval = C[g][n]
+            if abs(cval) > 65504.0:
+                raise ValueError(f"C overflow to fp16 inf: {cval}")
+            bits = fp16_bits(cval)
+            if bits & 0x7FFF == 0:
+                out[g][n] = 0
+                continue
+            s = i16(bits + delta)
+            # post-add sanity: must remain normal fp16 (exp field 1..30, not inf)
+            if not (1 <= ((s >> 10) & 0x1F) <= 30):
+                raise ValueError(
+                    f"exponent add produced non-normal fp16: bits={bits:#06x} "
+                    f"delta={delta:#06x} -> {s:#06x} (C={cval})")
+            out[g][n] = s & 0xFFFF
+    return out
+
+def golden(w_codes, scale_bytes, weight_fmt="e1m2"):
+    decode = fp4_e1m2 if weight_fmt == "e1m2" else fp4_e2m1
+    ref = [[0] * TILE_N for _ in range(TILE_M)]
+    for g in range(TILE_M):
+        s = e4m3_value(scale_bytes[g])
+        for n in range(TILE_N):
+            v = decode(w_codes[g][n]) * s
+            ref[g][n] = 0 if v == 0 else fp16_bits(v)
+    return ref
+
+# ------------------------------------------------------------------- checks
+def check_lut():
+    for m in range(8):
+        a0v = FP4_E2M1_GRID[LUT[m][0]]
+        a1v = FP4_E2M1_GRID[LUT[m][1]]
+        want = 4.0 + 0.5 * m
+        assert a0v + a1v == want, f"LUT[{m}]: {a0v}+{a1v} != {want}"
+        assert LUT[m][0] in (E2M1_CODE[2.0], E2M1_CODE[3.0], E2M1_CODE[4.0], E2M1_CODE[6.0]), "A0 outside {2,3,4,6}"
+        assert LUT[m][1] in (E2M1_CODE[0.5], E2M1_CODE[1.0], E2M1_CODE[1.5], E2M1_CODE[2.0], E2M1_CODE[3.0]), "A1 outside {0.5,1,1.5,2,3}"
+    print("[check] LUT: 8/8 mantissas decompose exactly; A0 in {2,3,4,6}, A1 in {0.5,1,1.5,2,3}")
+
+def exhaustive_sweep(weight_fmt):
+    """All 16 E4M3 mantissas x all valid scale exponents x all nonzero weights."""
+    n_cases = 0
+    for exp_field in range(1, 15):  # skip denorm exp; 15 reserved (NaN at man=7)
+        for m in range(8):
+            sb = (exp_field << 3) | m
+            if sb == 0x7F:
+                continue
+            for wc in range(16):
+                w_codes = [[wc] * TILE_N for _ in range(TILE_M)]
+                scale_bytes = [sb] * TILE_M
+                C = emulate_tile(w_codes, scale_bytes, weight_fmt)
+                got = aiv_stage(C, scale_bytes)
+                ref = golden(w_codes, scale_bytes, weight_fmt)
+                for g in range(TILE_M):
+                    for n in range(TILE_N):
+                        gv, rv = got[g][n], ref[g][n]
+                        if gv != rv and not (fp16_from_bits(gv) == fp16_from_bits(rv) == 0.0):
+                            raise AssertionError(
+                                f"sweep fail fmt={weight_fmt} sb={sb:#04x} wc={wc}: "
+                                f"got {gv:#06x} ({fp16_from_bits(gv)}) ref {rv:#06x} ({fp16_from_bits(rv)})")
+                        n_cases += 1
+    print(f"[check] exhaustive sweep ({weight_fmt}): {n_cases} element cases bit-exact")
+
+def random_tiles(n_tiles, seed, weight_fmt):
+    import random
+    rng = random.Random(seed)
+    total = 0
+    for t in range(n_tiles):
+        w_codes = [[rng.randrange(16) for _ in range(TILE_N)] for _ in range(TILE_M)]
+        scale_bytes = []
+        while len(scale_bytes) < TILE_M:
+            sb = (rng.randrange(1, 15) << 3) | rng.randrange(8)
+            if sb != 0x7F:
+                scale_bytes.append(sb)
+        C = emulate_tile(w_codes, scale_bytes, weight_fmt)
+        got = aiv_stage(C, scale_bytes)
+        ref = golden(w_codes, scale_bytes, weight_fmt)
+        for g in range(TILE_M):
+            for n in range(TILE_N):
+                gv, rv = got[g][n], ref[g][n]
+                if gv != rv and not (fp16_from_bits(gv) == fp16_from_bits(rv) == 0.0):
+                    raise AssertionError(
+                        f"tile {t} [{g}][{n}]: got {gv:#06x} ref {rv:#06x} "
+                        f"(w={w_codes[g][n]:#x} s={scale_bytes[g]:#x})")
+                total += 1
+    print(f"[check] random tiles ({weight_fmt}): {n_tiles} tiles x 256 = {total} elements bit-exact")
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--tiles", type=int, default=64)
+    ap.add_argument("--seed", type=int, default=1)
+    args = ap.parse_args()
+
+    print(f"NVFP4 Cube-dequant pipeline emulation (tiles={args.tiles}, seed={args.seed})")
+    check_lut()
+    for fmt in ("e1m2", "e2m1"):  # e1m2: target SupportType; e2m1: standard NVFP4
+        exhaustive_sweep(fmt)
+        random_tiles(args.tiles, args.seed + (0 if fmt == "e1m2" else 1000), fmt)
+    print("PASS: decomposition, fractal layouts, K=32 replicated Mmad, and the")
+    print("integer exponent-add AIV stage are all bit-exact vs the golden model.")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+</file>
+
+<file path="stars_log0_0_task.dump">
+[info] [0000000400] [TASK_BEGIN] RTSQ_2 ACSQ_0 stream_id:0, task_id:0 full_task_id:0 BEGIN
+</file>
+
+</files>

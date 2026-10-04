@@ -1,0 +1,18 @@
+{
+  "e4m3": {
+    "raw_codes": 16,
+    "representable_cuda_cast_roundtrips": 254,
+    "finite_scale_cuda_rne_checks": 1016,
+    "signed_zero_preserved": true
+  },
+  "e5m2": {
+    "raw_codes": 16,
+    "representable_cuda_cast_roundtrips": 248,
+    "finite_scale_cuda_rne_checks": 1016,
+    "signed_zero_preserved": true
+  },
+  "bank_padding_cases": 3,
+  "independent_stall": 0,
+  "shared_issue_extra_bound": 30,
+  "all_requested_gpu_controls_completed": true
+}
